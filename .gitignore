@@ -9,3 +9,4 @@ __pycache__/
 .DS_Store
 .render_key.env
 *.key.env
+.github_token.env
