@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node e2e.test.js",
+    "test": "node e2e.test.js && node e2e.social.test.js",
     "start": "node server.js"
   },
   "keywords": [],

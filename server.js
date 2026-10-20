@@ -40,9 +40,17 @@ CREATE TABLE IF NOT EXISTS chat(id INTEGER PRIMARY KEY,stream_id INTEGER,user_id
 CREATE TABLE IF NOT EXISTS purchases(id INTEGER PRIMARY KEY,user_id INTEGER,stripe_session TEXT UNIQUE,coins INTEGER,usd REAL,status TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS payouts(id INTEGER PRIMARY KEY,user_id INTEGER,diamonds INTEGER,usd REAL,status TEXT DEFAULT 'pending',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
+if(!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name='city'").get())db.exec("ALTER TABLE users ADD COLUMN city TEXT DEFAULT ''");
+db.exec(`
+CREATE TABLE IF NOT EXISTS meets(voter INTEGER REFERENCES users(id),target INTEGER REFERENCES users(id),liked INTEGER NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(voter,target));
+CREATE TABLE IF NOT EXISTS matches(a INTEGER REFERENCES users(id),b INTEGER REFERENCES users(id),created_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(a,b),CHECK(a<b));
+CREATE TABLE IF NOT EXISTS dms(id INTEGER PRIMARY KEY,sender INTEGER REFERENCES users(id),receiver INTEGER REFERENCES users(id),text TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,read_at TEXT);
+CREATE INDEX IF NOT EXISTS dms_pair ON dms(sender,receiver,id);CREATE INDEX IF NOT EXISTS dms_unread ON dms(receiver,read_at);
+`);
 db.prepare("UPDATE streams SET ended_at=CURRENT_TIMESTAMP WHERE ended_at IS NULL").run(); // nothing is live after restart
 
-const pub=u=>u&&({id:u.id,username:u.username,display_name:u.display_name||u.username,bio:u.bio||'',avatar:u.avatar,
+const online=new Map(); // uid -> socket count
+const pub=u=>u&&({id:u.id,username:u.username,display_name:u.display_name||u.username,bio:u.bio||'',avatar:u.avatar,city:u.city||'',online:online.has(u.id),
  followers:db.prepare('SELECT COUNT(*) n FROM follows WHERE followee=?').get(u.id).n,
  following:db.prepare('SELECT COUNT(*) n FROM follows WHERE follower=?').get(u.id).n});
 const me=u=>u&&({...pub(u),email:u.email,coins:u.coins,diamonds:u.diamonds});
@@ -82,7 +90,17 @@ const auth=(req,res,next)=>{const u=req.session.uid&&getUser(req.session.uid);if
 const ICE=()=>{const l=[{urls:(process.env.STUN_URL||'stun:stun.l.google.com:19302').split(',')}];
   if(process.env.TURN_URL)l.push({urls:process.env.TURN_URL.split(',').map(s=>s.trim()),username:process.env.TURN_USER||'',credential:process.env.TURN_PASS||''});return l};
 app.get('/api/config',(req,res)=>res.json({demo:DEMO,payments:!!stripe}));
-app.get('/api/ice',(req,res)=>{if(!req.session.uid)return res.status(401).json({error:'Please log in'});res.set('Cache-Control','no-store');res.json({iceServers:ICE(),turn:!!process.env.TURN_URL})});
+let iceCache={t:0,list:null};
+async function dynamicIce(){ // Cloudflare Realtime TURN (CF_TURN_KEY_ID+CF_TURN_API_TOKEN) or Metered (METERED_DOMAIN+METERED_API_KEY); cached 1h
+  if(iceCache.list&&Date.now()-iceCache.t<36e5)return iceCache.list;let list=null;
+  try{if(process.env.CF_TURN_KEY_ID&&process.env.CF_TURN_API_TOKEN){const r=await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${process.env.CF_TURN_KEY_ID}/credentials/generate-ice-servers`,
+      {method:'POST',headers:{Authorization:'Bearer '+process.env.CF_TURN_API_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({ttl:86400}),signal:AbortSignal.timeout(5000)});
+      if(r.ok){const j=await r.json();list=Array.isArray(j.iceServers)?j.iceServers:[j.iceServers]}}
+    else if(process.env.METERED_DOMAIN&&process.env.METERED_API_KEY){const r=await fetch(`https://${process.env.METERED_DOMAIN}/api/v1/turn/credentials?apiKey=${encodeURIComponent(process.env.METERED_API_KEY)}`,{signal:AbortSignal.timeout(5000)});
+      if(r.ok)list=await r.json()}}catch(e){console.error('TURN credential fetch failed:',e.message)}
+  if(list){iceCache={t:Date.now(),list}}return list}
+app.get('/api/ice',async(req,res)=>{if(!req.session.uid)return res.status(401).json({error:'Please log in'});res.set('Cache-Control','no-store');
+  const dyn=await dynamicIce();res.json({iceServers:dyn?[{urls:['stun:stun.l.google.com:19302']},...dyn]:ICE(),turn:!!(dyn||process.env.TURN_URL)})});
 app.post('/api/signup',authLimit,async(req,res)=>{
   const{email,username,password,dob,display_name}=req.body||{};
   if(!/^[a-z0-9_.]{3,24}$/i.test(username||''))return res.status(400).json({error:'Username: 3-24 letters, numbers, _ or .'});
@@ -102,8 +120,8 @@ app.post('/api/login',authLimit,async(req,res)=>{const{login,password}=req.body|
   req.session.regenerate(()=>{req.session.uid=u.id;res.json(me(u))})});
 app.post('/api/logout',(req,res)=>req.session.destroy(()=>{res.clearCookie('connect.sid');res.json({ok:1})}));
 app.get('/api/me',(req,res)=>{const u=req.session.uid&&getUser(req.session.uid);res.json(u?me(u):null)});
-app.put('/api/me',auth,(req,res)=>{const{display_name,bio}=req.body||{};if([display_name,bio].some(v=>v!=null&&typeof v!=='string'))return res.status(400).json({error:'Invalid input'});
-  db.prepare('UPDATE users SET display_name=?,bio=? WHERE id=?').run(String(display_name||req.user.username).slice(0,40),String(bio||'').slice(0,300),req.user.id);
+app.put('/api/me',auth,(req,res)=>{const{display_name,bio,city}=req.body||{};if([display_name,bio,city].some(v=>v!=null&&typeof v!=='string'))return res.status(400).json({error:'Invalid input'});
+  db.prepare('UPDATE users SET display_name=?,bio=?,city=? WHERE id=?').run(String(display_name||req.user.username).trim().slice(0,40)||req.user.username,String(bio||'').slice(0,300),city==null?req.user.city||'':String(city).trim().slice(0,60),req.user.id);
   res.json(me(getUser(req.user.id)))});
 const upload=multer({storage:multer.diskStorage({destination:UPLOAD_DIR,filename:(r,f,cb)=>cb(null,crypto.randomBytes(12).toString('hex')+({'image/png':'.png','image/jpeg':'.jpg','image/webp':'.webp','image/gif':'.gif'}[f.mimetype]))}),
   limits:{fileSize:+process.env.MAX_UPLOAD_BYTES||2*1024*1024,files:1,fields:5},fileFilter:(r,f,cb)=>cb(null,/^image\/(png|jpeg|webp|gif)$/.test(f.mimetype))});
@@ -138,6 +156,49 @@ app.post('/api/payouts',moneyLimit,auth,(req,res)=>{try{const r=db.transaction((
   res.json({payout:db.prepare('SELECT * FROM payouts WHERE id=?').get(r.lastInsertRowid),me:me(getUser(req.user.id))})}catch(e){res.status(400).json({error:e.message})}});
 app.get('/api/payouts',auth,(req,res)=>res.json(db.prepare('SELECT * FROM payouts WHERE user_id=? ORDER BY id DESC').all(req.user.id)));
 
+// ---- Near you / Meet Me / Chats ----
+const pair=(x,y)=>x<y?[x,y]:[y,x];
+const isMatch=(x,y)=>!!db.prepare('SELECT 1 FROM matches WHERE a=? AND b=?').get(...pair(x,y));
+const liveUids=()=>new Set([...rooms.values()].map(r=>r.uid));
+app.get('/api/nearby',auth,(req,res)=>{
+  const city=typeof req.query.city==='string'&&req.query.city.trim()?req.query.city.trim().slice(0,60):(req.user.city||'');
+  const rows=db.prepare(`SELECT * FROM users WHERE id<>? ORDER BY (CASE WHEN ?<>'' AND city=? COLLATE NOCASE THEN 0 WHEN ?<>'' AND city LIKE '%'||?||'%' THEN 1 WHEN city<>'' THEN 2 ELSE 3 END),id DESC LIMIT 100`)
+    .all(req.user.id,city,city,city,city);const live=liveUids();
+  res.json({city,users:rows.map(u=>({...pub(u),same_city:!!city&&(u.city||'').toLowerCase()===city.toLowerCase(),live:live.has(u.id),match:isMatch(req.user.id,u.id)}))})});
+app.get('/api/meet/next',auth,(req,res)=>{
+  // Tagged-style: show people who already liked you first, then same city, then anyone not yet voted on
+  const u=db.prepare(`SELECT u.*,EXISTS(SELECT 1 FROM meets m WHERE m.voter=u.id AND m.target=? AND m.liked=1) likes_me FROM users u
+    WHERE u.id<>? AND u.id NOT IN(SELECT target FROM meets WHERE voter=?) ORDER BY likes_me DESC,(u.city<>'' AND u.city=? COLLATE NOCASE) DESC,RANDOM() LIMIT 1`)
+    .get(req.user.id,req.user.id,req.user.id,req.user.city||'');
+  const stats={likes_me:db.prepare('SELECT COUNT(*) n FROM meets WHERE target=? AND liked=1').get(req.user.id).n,
+    matches:db.prepare('SELECT COUNT(*) n FROM matches WHERE a=? OR b=?').get(req.user.id,req.user.id).n};
+  res.json({user:u?pub(u):null,stats})});
+const meetLimit=limiter(120,60e3);
+app.post('/api/meet',meetLimit,auth,(req,res)=>{const{username,like}=req.body||{};if(typeof username!=='string'||typeof like!=='boolean')return res.status(400).json({error:'Invalid input'});
+  const t=db.prepare('SELECT * FROM users WHERE username=?').get(username);if(!t||t.id===req.user.id)return res.status(400).json({error:'Invalid user'});
+  const matched=db.transaction(()=>{db.prepare('INSERT INTO meets(voter,target,liked) VALUES(?,?,?) ON CONFLICT(voter,target) DO UPDATE SET liked=excluded.liked,created_at=CURRENT_TIMESTAMP').run(req.user.id,t.id,like?1:0);
+    if(like&&db.prepare('SELECT 1 FROM meets WHERE voter=? AND target=? AND liked=1').get(t.id,req.user.id)){
+      return db.prepare('INSERT OR IGNORE INTO matches(a,b) VALUES(?,?)').run(...pair(req.user.id,t.id)).changes>0}return false})();
+  if(matched){io.to('u'+t.id).emit('match',{user:pub(req.user)});}
+  res.json({match:like&&isMatch(req.user.id,t.id),new_match:matched,user:pub(t)})});
+app.get('/api/matches',auth,(req,res)=>res.json(db.prepare('SELECT u.*,m.created_at matched_at FROM matches m JOIN users u ON u.id=(CASE WHEN m.a=? THEN m.b ELSE m.a END) WHERE m.a=? OR m.b=? ORDER BY m.created_at DESC').all(req.user.id,req.user.id,req.user.id).map(u=>({...pub(u),matched_at:u.matched_at}))));
+app.get('/api/likes',auth,(req,res)=>res.json(db.prepare('SELECT u.* FROM meets m JOIN users u ON u.id=m.voter WHERE m.target=? AND m.liked=1 ORDER BY m.created_at DESC LIMIT 50').all(req.user.id).map(pub)));
+const unreadTotal=uid=>db.prepare('SELECT COUNT(*) n FROM dms WHERE receiver=? AND read_at IS NULL').get(uid).n;
+app.get('/api/chats',auth,(req,res)=>{const me_=req.user.id;
+  const rows=db.prepare(`SELECT CASE WHEN sender=? THEN receiver ELSE sender END other,MAX(id) last FROM dms WHERE sender=? OR receiver=? GROUP BY other ORDER BY last DESC LIMIT 100`).all(me_,me_,me_);
+  const convs=rows.map(r=>{const m=db.prepare('SELECT * FROM dms WHERE id=?').get(r.last);return{user:pub(getUser(r.other)),last:{text:m.text,mine:m.sender===me_,at:m.created_at},
+    unread:db.prepare('SELECT COUNT(*) n FROM dms WHERE sender=? AND receiver=? AND read_at IS NULL').get(r.other,me_).n,match:isMatch(me_,r.other)}});
+  const have=new Set(rows.map(r=>r.other));
+  const newMatches=db.prepare('SELECT u.* FROM matches m JOIN users u ON u.id=(CASE WHEN m.a=? THEN m.b ELSE m.a END) WHERE m.a=? OR m.b=? ORDER BY m.created_at DESC').all(me_,me_,me_).filter(u=>!have.has(u.id)).map(pub);
+  res.json({convs,new_matches:newMatches,unread:unreadTotal(me_)})});
+app.get('/api/chats/:name',auth,(req,res)=>{const o=db.prepare('SELECT * FROM users WHERE username=?').get(req.params.name);if(!o||o.id===req.user.id)return res.status(404).json({error:'Not found'});
+  const before=Number.isInteger(+req.query.before)&&+req.query.before>0?+req.query.before:1e15;
+  const msgs=db.prepare('SELECT id,sender,text,created_at,read_at FROM dms WHERE ((sender=? AND receiver=?) OR (sender=? AND receiver=?)) AND id<? ORDER BY id DESC LIMIT 100').all(req.user.id,o.id,o.id,req.user.id,before).reverse();
+  const r=db.prepare('UPDATE dms SET read_at=CURRENT_TIMESTAMP WHERE sender=? AND receiver=? AND read_at IS NULL').run(o.id,req.user.id);
+  if(r.changes){io.to('u'+o.id).emit('dm-read',{by:req.user.username});io.to('u'+req.user.id).emit('unread',unreadTotal(req.user.id))}
+  res.json({user:pub(o),match:isMatch(req.user.id,o.id),messages:msgs.map(m=>({id:m.id,mine:m.sender===req.user.id,text:m.text,at:m.created_at,read:!!m.read_at}))})});
+app.post('/api/chats/:name/read',auth,(req,res)=>{const o=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
+  if(o)db.prepare('UPDATE dms SET read_at=CURRENT_TIMESTAMP WHERE sender=? AND receiver=? AND read_at IS NULL').run(o.id,req.user.id);res.json({unread:unreadTotal(req.user.id)})});
 app.use('/uploads',express.static(UPLOAD_DIR,{maxAge:'7d',setHeaders:r=>r.set('X-Content-Type-Options','nosniff')}));
 for(const d of['css','js','img'])app.use('/'+d,express.static(path.join(__dirname,d)));
 app.get('/',(req,res)=>res.sendFile(path.join(__dirname,'index.html')));
@@ -157,7 +218,7 @@ const sendGift=db.transaction((sender,receiver,c,d)=>{
 const endRoom=r=>{if(!r)return;rooms.delete(r.id);db.prepare('UPDATE streams SET ended_at=CURRENT_TIMESTAMP WHERE id=?').run(r.id);io.to('s'+r.id).emit('ended');io.emit('streams')};
 io.on('connection',sock=>{
   const uid=sock.request.session?.uid;const user=uid&&getUser(uid);if(!user){sock.emit('err','Please log in');return sock.disconnect()}
-  sock.join('u'+uid);let hosting=null,watching=null;const chatOk=bucket(+process.env.CHAT_RATE||10,10e3),giftOk=bucket(+process.env.GIFT_RATE||20,10e3),sigOk=bucket(600,10e3);
+  online.set(uid,(online.get(uid)||0)+1);sock.join('u'+uid);sock.emit('unread',unreadTotal(uid));let hosting=null,watching=null;const dmOk=bucket(+process.env.DM_RATE||15,10e3);const chatOk=bucket(+process.env.CHAT_RATE||10,10e3),giftOk=bucket(+process.env.GIFT_RATE||20,10e3),sigOk=bucket(600,10e3);
   const name=()=>getUser(uid).display_name||user.username;
   sock.on('golive',({title}={},cb)=>{if(typeof cb!=='function')cb=()=>{};title=typeof title==='string'?title.trim():'';if(hosting)endRoom(hosting);
     const id=db.prepare('INSERT INTO streams(user_id,title) VALUES(?,?)').run(uid,String(title||'').slice(0,80)).lastInsertRowid;
@@ -178,7 +239,13 @@ io.on('connection',sock=>{
     db.prepare('INSERT INTO gifts_sent(stream_id,sender,receiver,gift_key,coins,diamonds) VALUES(?,?,?,?,?,?)').run(r.id,uid,r.uid,g[0],c,d);
     io.to('s'+r.id).emit('gift',{k,from:name(),coins:c,diamonds:d,to:getUser(r.uid).display_name,total:getUser(r.uid).diamonds});
     pushBalance(uid);pushBalance(r.uid);cb?.({ok:1})});
-  sock.on('disconnect',()=>{if(hosting)endRoom(hosting);if(watching){watching.viewers.delete(sock.id);io.to(watching.host).emit('viewer-left',{sid:sock.id});io.to('s'+watching.id).emit('count',watching.viewers.size)}});
+  sock.on('dm',({to,text}={},cb)=>{if(typeof cb!=='function')cb=()=>{};if(!dmOk())return cb({error:'Slow down'});
+    if(typeof to!=='string'||typeof text!=='string')return cb({error:'Invalid'});text=text.trim().slice(0,1000);if(!text)return cb({error:'Empty'});
+    const o=db.prepare('SELECT id FROM users WHERE username=?').get(to);if(!o||o.id===uid)return cb({error:'Unknown user'});
+    const id=db.prepare('INSERT INTO dms(sender,receiver,text) VALUES(?,?,?)').run(uid,o.id,text).lastInsertRowid;const m=db.prepare('SELECT created_at FROM dms WHERE id=?').get(id);
+    const me_=getUser(uid);io.to('u'+o.id).emit('dm',{id,from:me_.username,user:pub(me_),text,at:m.created_at,mine:false});io.to('u'+o.id).emit('unread',unreadTotal(o.id));
+    sock.to('u'+uid).emit('dm',{id,from:to,with:to,text,at:m.created_at,mine:true});cb({ok:1,id,at:m.created_at})});
+  sock.on('disconnect',()=>{const n=(online.get(uid)||1)-1;if(n)online.set(uid,n);else online.delete(uid);if(hosting)endRoom(hosting);if(watching){watching.viewers.delete(sock.id);io.to(watching.host).emit('viewer-left',{sid:sock.id});io.to('s'+watching.id).emit('count',watching.viewers.size)}});
 });
 const stop=()=>{io.close();server.close(()=>{db.close();process.exit(0)});setTimeout(()=>process.exit(0),5e3)};process.on('SIGTERM',stop);process.on('SIGINT',stop);
 server.listen(PORT,HOST,()=>console.log(`Tap.in on http://${HOST}:${PORT} env=${PROD?'production':'dev'} demo=${DEMO} payments=${!!stripe} turn=${!!process.env.TURN_URL} data=${DATA_DIR}`));

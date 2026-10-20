@@ -15,7 +15,7 @@ const gkey=g=>g[4]!="Exclusive"?g[2]:g[5]=="SUB"?-3e6:g[5]=="VIP"?-2e6:g[5]==nul
 function giftGrid(){const l=GIFTS.map((g,k)=>[g,k]).filter(([g])=>g[4]==S.gtab).sort((a,b)=>gkey(a[0])-gkey(b[0])||a[1]-b[1]);return l.length?`<div class="gifts">${l.map(([[g,n,c,,,v],k])=>v?`<div class="gift locked" onclick="toast('${v=="VIP"?"VIP only":v=="SUB"?"Subscribers only":"Unlocks at level "+v}')"><i class="lvb">${typeof v=="number"?"LVL "+v:v}</i><i class="lck">🔒</i><span>${gimg(k)}</span>${n}<br><b class="lvl">${typeof v=="number"?"LVL "+v:v}</b></div>`:`<div class="gift" onclick="gift(${k})"><span>${gimg(k)}</span>${n}<br>🪙${c}</div>`).join("")}</div>`:`<div class="gifts gsoon">Coming soon</div>`}
 // ===== Real app (talks to the Node backend) =====
 const NAMES=["Ava","Jay","Mia","Leo","Zoe","Kai","Noa","Eli","Ivy","Max","Ria","Sam"];
-const S={gtab:"Popular",screen:"gate",auth:"signup",tab:"For You",me:null,cfg:{},coins:0,diamonds:0,wtab:"Diamonds",watch:null,stream:null,live:null,streams:[],prof:null,peers:{},sim:null};
+const S={unread:0,city:"",dm:null,meet:null,gtab:"Popular",screen:"gate",auth:"signup",tab:"For You",me:null,cfg:{},coins:0,diamonds:0,wtab:"Diamonds",watch:null,stream:null,live:null,streams:[],prof:null,peers:{},sim:null};
 const $=h=>document.getElementById("app").innerHTML=h;
 const esc=t=>String(t??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const toast=t=>{const d=document.createElement("div");d.className="toast";d.textContent=t;document.body.append(d);setTimeout(()=>d.remove(),1800)};
@@ -33,7 +33,11 @@ function connect(){if(sock)return;loadIce();sock=io();sock.on("err",t=>toast(t))
  sock.on("ended",()=>{if(S.screen=="watch"){toast("Stream ended");go("home")}});
  sock.on("viewer",({sid})=>hostPeer(sid));
  sock.on("viewer-left",({sid})=>{S.peers[sid]?.close();delete S.peers[sid]});
- sock.on("signal",onSignal);}
+ sock.on("signal",onSignal);
+ sock.on("unread",setUnread);
+ sock.on("dm",m=>{const other=m.mine?m.with:m.from;if(S.screen=="dm"&&S.dm?.user.username==other){dmAdd(m);if(!m.mine)api(`/api/chats/${encodeURIComponent(other)}/read`,{method:"POST"}).then(r=>setUnread(r.unread))}else if(S.screen=="chats")chats();else if(!m.mine)toast(`💬 ${m.user?.display_name||m.from}: ${m.text.slice(0,40)}`)});
+ sock.on("dm-read",()=>{if(S.screen=="dm")document.querySelectorAll(".dmm.mine .rd").forEach(e=>e.textContent="Seen")});
+ sock.on("match",({user})=>matchPop(user));}
 const ice=()=>({iceServers:S.ice||[{urls:["stun:stun.l.google.com:19302"]}]});
 const loadIce=()=>api("/api/ice").then(r=>S.ice=r.iceServers).catch(()=>{});
 async function hostPeer(sid){if(!S.stream)return;const pc=new RTCPeerConnection(ice());S.peers[sid]=pc;S.stream.getTracks().forEach(t=>pc.addTrack(t,S.stream));
@@ -46,7 +50,9 @@ async function onSignal({from,data}){let pc=S.peers[from];
 const closePeers=()=>{Object.values(S.peers).forEach(p=>p.close());S.peers={}};
 const go=s=>{document.querySelector(".nc")?.remove();if(S.screen=="watch"&&s!="watch"){sock?.emit("leave");closePeers()}
  if(s!=="golive"&&S.live){endLive()}S.screen=s;render()};
-const navbar=()=>`<nav>${[["📍","Near you","home"],["📺","Live","home"],["💘","Match","home"],["💬","Chats","home"],["👤","Me","me"]].map(([e,t,g],k)=>`<a class="${(k==1&&S.screen=="home")||(k==4&&S.screen=="profile")?"on":""}" onclick="${k==1?"go('home')":k==4?"openProfile(S.me.username)":`toast('${t}: coming soon')`}"><span>${e}</span>${t}</a>`).join("")}</nav>`;
+const NAV=[["📍","Near you","nearyou"],["📺","Live","home"],["💘","Match","match"],["💬","Chats","chats"],["👤","Me","profile"]];
+const navbar=()=>`<nav>${NAV.map(([e,t,g])=>`<a class="${S.screen==g||(g=="chats"&&S.screen=="dm")?"on":""}" onclick="${g=="profile"?"openProfile(S.me.username)":`go('${g}')`}"><span>${e}${g=="chats"&&S.unread?`<i class="ub" id="ub">${S.unread>99?"99+":S.unread}</i>`:g=="chats"?`<i class="ub" id="ub" style="display:none"></i>`:""}</span>${t}</a>`).join("")}</nav>`;
+const setUnread=n=>{S.unread=n;const b=document.getElementById("ub");if(b){b.textContent=n>99?"99+":n;b.style.display=n?"":"none"}};
 async function loadStreams(){try{S.streams=await api("/api/streams")}catch(e){S.streams=[]}if(S.screen=="home")home()}
 function home(){const tabs=["For You","Trending","Nearby","Favorites","VS"];const fav=S.streams.filter(s=>s.following),list=S.tab=="Favorites"?fav:S.streams;
 $(`<header><div class="logo" title="${APP_NAME}"><i></i></div><div><button class="icon" title="Wallet" onclick="S.wtab='Diamonds';go('wallet')">🔧</button><button class="icon" onclick="S.wtab='Coins';go('wallet')">🪙</button></div></header>
@@ -58,15 +64,15 @@ ${S.cfg.demo?`<div class="banner">🎉 Weekend Gift Fest<small>Double diamonds o
 async function openProfile(n){try{S.prof=n==S.me.username?{...S.me,self:1}:await api("/api/users/"+encodeURIComponent(n));S.screen="profile";render()}catch(e){toast(e.message)}}
 function profile(){const p=S.prof;
 $(`<header><button class="icon" onclick="go('home')">←</button><b>${p.self?"My profile":esc(p.display_name)}</b>${p.self?`<button class="icon" title="Log out" onclick="logout()">⎋</button>`:"<span></span>"}</header>
-<div class="box" style="text-align:center"><div style="display:flex;justify-content:center">${av(p,96)}</div><div class="big" style="font-size:22px">${esc(p.display_name)}</div><div class="muted">@${esc(p.username)}${p.live?' · <span class="live" style="position:static">LIVE</span>':""}</div>
+<div class="box" style="text-align:center"><div style="display:flex;justify-content:center">${av(p,96)}</div><div class="big" style="font-size:22px">${esc(p.display_name)}</div><div class="muted">@${esc(p.username)}${p.city?" · 📍 "+esc(p.city):""}${p.live?' · <span class="live" style="position:static">LIVE</span>':""}</div>
 <div class="conv" style="justify-content:center;gap:28px"><span><b id="fc">${p.followers}</b> followers</span><span><b>${p.following}</b> following</span></div><p>${esc(p.bio)||'<span class="muted">No bio yet</span>'}</p>
-${p.self?"":`<button class="btn ${p.is_following?"":"red"}" id="fb" onclick="follow()">${p.is_following?"Unfollow":"Follow"}</button>`}</div>
-${p.self?`<div class="box"><div class="muted">Edit profile</div><input id="pdn" placeholder="Display name" value="${esc(p.display_name)}"><input id="pbio" placeholder="Bio" value="${esc(p.bio)}">
+${p.self?"":`<button class="btn ${p.is_following?"":"red"}" id="fb" onclick="follow()">${p.is_following?"Unfollow":"Follow"}</button> <button class="btn" id="msgb" onclick="openDm('${esc(p.username)}')">💬 Message</button>`}</div>
+${p.self?`<div class="box"><div class="muted">Edit profile</div><input id="pdn" placeholder="Display name" value="${esc(p.display_name)}"><input id="pbio" placeholder="Bio" value="${esc(p.bio)}"><input id="pcity" placeholder="City (shown in Near you)" value="${esc(p.city)}">
 <label class="muted">Avatar <input id="pav" type="file" accept="image/*" style="width:auto"></label><button class="btn full red" style="width:100%" onclick="saveProfile()">Save</button>
 <div class="muted" style="margin-top:8px">🪙 <span data-coins>${S.coins.toLocaleString()}</span> · 💎 <span data-dia>${S.diamonds.toLocaleString()}</span></div></div>`:""}${navbar()}`)}
 async function follow(){const p=S.prof;try{const r=await api(`/api/users/${p.username}/follow`,{method:p.is_following?"DELETE":"POST"});p.is_following=!p.is_following;p.followers=r.followers;profile()}catch(e){toast(e.message)}}
 async function saveProfile(){try{const f=document.getElementById("pav").files[0];if(f){const fd=new FormData();fd.append("avatar",f);await api("/api/me/avatar",{method:"POST",body:fd})}
- setMe(await api("/api/me",{method:"PUT",body:{display_name:document.getElementById("pdn").value,bio:document.getElementById("pbio").value}}));S.prof={...S.me,self:1};toast("Profile saved");profile()}catch(e){toast(e.message)}}
+ setMe(await api("/api/me",{method:"PUT",body:{display_name:document.getElementById("pdn").value,bio:document.getElementById("pbio").value,city:document.getElementById("pcity").value}}));S.prof={...S.me,self:1};toast("Profile saved");profile()}catch(e){toast(e.message)}}
 async function logout(){await api("/api/logout",{method:"POST"});sock?.disconnect();sock=null;setMe(null);S.screen="gate";render()}
 function watch(){const s=S.streams.find(x=>x.id==S.watch)||{user:{display_name:"…",username:""},viewers:0};
 $(`<div class="video" style="padding:0;overflow:hidden"><video id="rv" autoplay playsinline muted style="display:none;width:100%;height:100%;object-fit:cover;position:absolute;inset:0"></video><div class="top" style="z-index:2"><span class="pill">← <a onclick="go('home')" style="cursor:pointer">${esc(s.user.display_name)}</a> · LIVE</span><span class="pill">👁 <span id="vc">${s.viewers}</span></span></div><span id="vph">${esc(s.user.display_name[0].toUpperCase())}<div class="muted" style="position:absolute;bottom:8px;left:0;right:0;color:#ddd;font-size:12px">Connecting video…</div></span></div>
@@ -119,7 +125,43 @@ async function enter(){const v=id=>document.getElementById(id)?.value;try{
   setMe(await api("/api/signup",{method:"POST",body:{email:v("em"),username:v("un"),password:v("pw"),dob:v("dob")}}))}
  else setMe(await api("/api/login",{method:"POST",body:{login:v("lg"),password:v("pw")}}));
  connect();go("home")}catch(e){toast(e.message)}}
-function render(){if(!S.me&&S.screen!="gate")S.screen="gate";if(S.screen=="home"&&!render.busy){render.busy=1;loadStreams().finally(()=>render.busy=0)}({home,watch,golive,wallet,cashout,gate,profile})[S.screen]();scrollTo(0,0)}
+function render(){if(!S.me&&S.screen!="gate")S.screen="gate";if(S.screen=="home"&&!render.busy){render.busy=1;loadStreams().finally(()=>render.busy=0)}({home,watch,golive,wallet,cashout,gate,profile,nearyou,match,chats,dm})[S.screen]();scrollTo(0,0)}
 (async()=>{S.cfg=await api("/api/config").catch(()=>({}));const sm=document.querySelector(".sample");if(sm){if(S.cfg.demo)sm.textContent="DEMO MODE · SAMPLE VIEWERS";else sm.remove()}
  setMe(await api("/api/me").catch(()=>null));if(S.me){connect();S.screen="home"}
  const q=new URLSearchParams(location.search);if(q.has("paid")){toast(q.get("paid")=="1"?"Payment received — coins arrive in a moment":"Payment cancelled");history.replaceState(0,"","/");if(S.me){S.screen="wallet";S.wtab="Coins"}}render()})();
+
+// ===== Near you (Tagged "Browse"): people sorted by city =====
+const tm=t=>{const d=new Date(String(t).replace(" ","T")+"Z");const s=(Date.now()-d)/1e3;return s<60?"now":s<3600?Math.floor(s/60)+"m":s<86400?Math.floor(s/3600)+"h":d.toLocaleDateString()};
+async function nearyou(){const hdr=`<header><div class="logo" title="${APP_NAME}"><i></i></div><span></span></header>`;
+ $(hdr+`<div class="bar"><input id="city" placeholder="City (e.g. Austin)" value="${esc(S.city||S.me.city||"")}" onkeydown="event.key=='Enter'&&setCity()"><button class="btn" onclick="setCity()">📍 Search</button></div><div id="nl" class="muted" style="padding:0 14px">Loading…</div>${navbar()}`);
+ try{const r=await api("/api/nearby"+(S.city?"?city="+encodeURIComponent(S.city):""));if(S.screen!="nearyou")return;
+  document.getElementById("nl").outerHTML=`<h3>${r.city?`Near ${esc(r.city)}`:"People"}${S.me.city?"":` <small class="muted">· add your city in Me to be found</small>`}</h3>
+  <div class="ppl">${r.users.length?r.users.map(u=>`<div class="pc ${u.match?"mt":""}" onclick="openProfile('${esc(u.username)}')"><div class="pa">${av(u,96)}${u.online?'<i class="ol"></i>':""}${u.live?'<span class="live">LIVE</span>':""}</div>
+   <b>${esc(u.display_name)}</b><small>${u.city?"📍 "+esc(u.city):"Location hidden"}${u.match?" · 💘 Match":""}</small><button class="btn" onclick="event.stopPropagation();openDm('${esc(u.username)}')">💬</button></div>`).join(""):`<p class="muted" style="padding:0 14px">No one here yet.</p>`}</div>`}catch(e){toast(e.message)}}
+function setCity(){S.city=document.getElementById("city").value.trim();nearyou()}
+// ===== Match (Tagged "Meet Me"): yes/no on one profile at a time, mutual = match =====
+async function match(){const hdr=`<header><div class="logo" title="${APP_NAME}"><i></i></div><span></span></header>`;
+ try{S.meet=await api("/api/meet/next")}catch(e){return toast(e.message)}if(S.screen!="match")return;const u=S.meet.user,st=S.meet.stats;
+ $(hdr+`<div class="seg"><b class="on">Meet Me</b><b onclick="likesList()">Likes you · ${st.likes_me}</b><b onclick="go('chats')">Matches · ${st.matches}</b></div>
+ ${u?`<div class="mcard" id="mcard"><div class="mph">${u.avatar?`<img src="${esc(u.avatar)}" alt="">`:`<span style="background:${G(hue(u.username))}">${esc(u.display_name[0].toUpperCase())}</span>`}${u.online?'<i class="ol"></i>':""}</div>
+ <div class="mi"><b>${esc(u.display_name)}</b><small>@${esc(u.username)}${u.city?" · 📍 "+esc(u.city):""}</small><p>${esc(u.bio)||'<span class="muted">No bio yet</span>'}</p></div></div>
+ <div class="mq">Do you want to meet ${esc(u.display_name)}?</div><div class="mb"><button class="no" id="mno" onclick="vote(false)">✕<small>No</small></button><button class="yes" id="myes" onclick="vote(true)">♥<small>Yes</small></button></div>`
+ :`<div class="box" style="text-align:center"><div class="big" style="font-size:20px">You've seen everyone 🎉</div><p class="muted">Check back later as new people join.</p></div>`}${navbar()}`)}
+async function vote(like){const u=S.meet?.user;if(!u)return;const c=document.getElementById("mcard");if(c)c.classList.add(like?"gy":"gn");
+ try{const r=await api("/api/meet",{method:"POST",body:{username:u.username,like}});if(r.match)matchPop(r.user);setTimeout(()=>S.screen=="match"&&match(),r.match?0:250)}catch(e){toast(e.message)}}
+function matchPop(u){document.querySelector(".mpop")?.remove();const d=document.createElement("div");d.className="mpop";d.innerHTML=`<div class="mpi"><div class="big">It's a Match!</div><div class="mav">${av(S.me,84)}<span>💘</span>${av(u,84)}</div><p class="muted">You and ${esc(u.display_name)} want to meet.</p><button class="btn full red" style="width:100%" onclick="this.closest('.mpop').remove();openDm('${esc(u.username)}')">Send a message</button><button class="btn full" style="width:100%" onclick="this.closest('.mpop').remove()">Keep playing</button></div>`;document.body.append(d)}
+async function likesList(){try{const l=await api("/api/likes");$(`<header><button class="icon" onclick="go('match')">←</button><b>Likes you</b><span></span></header>
+ <div class="ppl">${l.length?l.map(u=>`<div class="pc" onclick="openProfile('${esc(u.username)}')"><div class="pa">${av(u,96)}</div><b>${esc(u.display_name)}</b><small>${u.city?"📍 "+esc(u.city):""}</small></div>`).join(""):`<p class="muted" style="padding:14px">No likes yet — keep playing Meet Me.</p>`}</div>${navbar()}`)}catch(e){toast(e.message)}}
+// ===== Chats: 1:1 DMs =====
+async function chats(){let r;try{r=await api("/api/chats")}catch(e){return toast(e.message)}if(S.screen!="chats")return;setUnread(r.unread);
+ $(`<header><div class="logo" title="${APP_NAME}"><i></i></div><span></span></header>
+ ${r.new_matches.length?`<h3>New matches</h3><div class="row">${r.new_matches.map(u=>`<figure class="story mts" onclick="openDm('${esc(u.username)}')">${av(u)}<figcaption>${esc(u.display_name)}</figcaption></figure>`).join("")}</div>`:""}
+ <h3>Messages</h3><div class="cl">${r.convs.length?r.convs.map(c=>`<div class="ci ${c.match?"mt":""} ${c.unread?"un":""}" onclick="openDm('${esc(c.user.username)}')">${av(c.user,50)}<div class="cx"><b>${esc(c.user.display_name)}${c.match?' <i class="mtag">💘 Match</i>':""}</b><small>${c.last.mine?"You: ":""}${esc(c.last.text)}</small></div><div class="cr"><small>${tm(c.last.at)}</small>${c.unread?`<i class="ub">${c.unread}</i>`:""}</div></div>`).join(""):`<p class="muted" style="padding:0 14px">No messages yet. Say hi from Near you or a profile.</p>`}</div>${navbar()}`)}
+async function openDm(n){try{S.dm=await api("/api/chats/"+encodeURIComponent(n));S.screen="dm";render();api("/api/chats").then(r=>setUnread(r.unread)).catch(()=>{})}catch(e){toast(e.message)}}
+const dmHtml=m=>`<div class="dmm ${m.mine?"mine":""}"><p>${esc(m.text)}</p><small>${tm(m.at)}${m.mine?` · <span class="rd">${m.read?"Seen":"Sent"}</span>`:""}</small></div>`;
+function dmAdd(m){const l=document.getElementById("dml");if(!l)return;l.insertAdjacentHTML("beforeend",dmHtml(m));l.scrollTop=1e9}
+function dm(){const d=S.dm,u=d.user;
+ $(`<header><button class="icon" onclick="go('chats')">←</button><b onclick="openProfile('${esc(u.username)}')" style="cursor:pointer">${esc(u.display_name)}${d.match?" 💘":""}</b><span class="muted" style="font-size:12px">${u.online?"● Online":""}</span></header>
+ ${d.match?`<div class="mbn">💘 You matched with ${esc(u.display_name)} on Meet Me</div>`:""}<div class="dml" id="dml">${d.messages.map(dmHtml).join("")||`<p class="muted" style="text-align:center;padding:20px">Say hi to ${esc(u.display_name)} 👋</p>`}</div>
+ <div class="bar dmb"><input id="dmi" placeholder="Message..." maxlength="1000" onkeydown="event.key=='Enter'&&sendDm()"><button class="btn red" onclick="sendDm()">Send</button></div>`);const l=document.getElementById("dml");l.scrollTop=1e9}
+function sendDm(){const i=document.getElementById("dmi"),t=i.value.trim();if(!t)return;i.value="";sock.emit("dm",{to:S.dm.user.username,text:t},r=>{if(r.error)return toast(r.error);dmAdd({mine:true,text:t,at:r.at,read:false})})}

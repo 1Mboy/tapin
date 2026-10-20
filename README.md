@@ -41,6 +41,11 @@ WebRTC mesh: the streamer's browser opens one peer connection per viewer (fine f
 For viewers behind strict NATs add a TURN server; for big audiences switch to an SFU (LiveKit, mediasoup).
 Browsers only allow camera access on HTTPS (or localhost), so deploy behind HTTPS.
 
+## Features
+Live video + chat + gifts, wallet/cash-out, profiles & follows, **Near you** (people sorted by city), **Match** (Meet Me yes/no, mutual matches), **Chats** (1:1 realtime DMs with unread counts, matches highlighted).
+
+Tests: `npm test` (live/gifts) and `node e2e.social.test.js` (Near you/Match/Chats). Set `BASE_URL` to test another host.
+
 ## Production
 See **DEPLOY.md** (env vars, Render blueprint `render.yaml`, `fly.toml`, Stripe webhook, TURN).
 

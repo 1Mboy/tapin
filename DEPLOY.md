@@ -14,6 +14,8 @@ Nothing is deployed yet. This file lists what you need to do.
 | `STRIPE_WEBHOOK_SECRET` | for payments | `whsec_...` from the webhook endpoint below |
 | `TURN_URL` | recommended | comma-separated TURN URLs |
 | `TURN_USER`, `TURN_PASS` | with TURN | TURN credentials |
+| `CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN` | recommended | Cloudflare TURN (short-lived credentials fetched by the server) |
+| `METERED_DOMAIN`, `METERED_API_KEY` | alternative | Metered TURN |
 | `STUN_URL` | no | overrides `stun:stun.l.google.com:19302` |
 | `DEMO` | no | `1` adds fake demo viewers (never credited) |
 | `COOKIE_SECURE` | no | only set `0` for local plain-HTTP testing of a production build |
@@ -37,14 +39,25 @@ The server hands ICE servers to logged-in clients at `GET /api/ice` (STUN only, 
 3. Test with card `4242 4242 4242 4242`, any future date and any CVC. Coins are credited only by the webhook, once per session.
 4. Cash-out creates a `pending` row in the `payouts` table and deducts diamonds. No money moves; pay creators manually (or later via Stripe Connect).
 
-## TURN (needed for viewers behind strict NAT / mobile networks)
-**Metered (free tier, ~500 MB/month):** sign up at https://www.metered.ca/stun-turn, create an app, open "TURN credentials", then set
-```
-TURN_URL=turn:global.relay.metered.ca:80,turn:global.relay.metered.ca:80?transport=tcp,turn:global.relay.metered.ca:443,turns:global.relay.metered.ca:443?transport=tcp
-TURN_USER=<username from dashboard>
-TURN_PASS=<credential from dashboard>
-```
-**Open Relay (Metered's free public project):** https://www.metered.ca/tools/openrelay/. Use the URLs and credentials shown there in the same three variables. It's fine for testing; use your own credentials for production.
+## TURN (needed for viewers on phone data / strict NAT)
+There is no reputable free TURN service that works without an account: Open Relay's public static credentials (`openrelayproject`) stopped working in 2025. Until one of the options below is set, the app uses STUN only. That works on most Wi-Fi, but viewers on carrier networks (CGNAT) often get no video.
+
+The server supports three options, in this order of preference. `/api/ice` hands short-lived credentials to logged-in users and caches them for 1 hour.
+
+1. **Cloudflare Realtime TURN (recommended):** free up to 1,000 GB/month, then $0.05/GB. Needs a free Cloudflare account.
+   Dashboard → Realtime → TURN Server → Create → copy the **Turn Token ID** and **API Token**:
+   ```
+   CF_TURN_KEY_ID=<Turn Token ID>
+   CF_TURN_API_TOKEN=<API token>
+   ```
+2. **Metered.ca:** free tier 500 MB/month. Sign up at https://www.metered.ca/stun-turn, create an app, then copy the app domain and an API key:
+   ```
+   METERED_DOMAIN=<yourapp>.metered.live
+   METERED_API_KEY=<api key>
+   ```
+3. **Static TURN** (your own coturn, or ExpressTURN's free tier with static credentials): `TURN_URL`, `TURN_USER`, `TURN_PASS`.
+
+Set the values in Render → tapin → Environment → Save, which redeploys the service.
 
 Video uses a mesh: the streamer uploads one copy per viewer, so expect roughly 5–20 viewers per stream. For bigger audiences move to an SFU (LiveKit Cloud, mediasoup).
 
