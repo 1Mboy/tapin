@@ -207,6 +207,7 @@ app.get('/api/chats/:name',auth,(req,res)=>{const o=db.prepare('SELECT * FROM us
   res.json({user:pub(o),match:isMatch(req.user.id,o.id),messages:msgs.map(m=>({id:m.id,mine:m.sender===req.user.id,text:m.text,at:m.created_at,read:!!m.read_at}))})});
 app.post('/api/chats/:name/read',auth,(req,res)=>{const o=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
   if(o)db.prepare('UPDATE dms SET read_at=CURRENT_TIMESTAMP WHERE sender=? AND receiver=? AND read_at IS NULL').run(o.id,req.user.id);res.json({unread:unreadTotal(req.user.id)})});
+try{require('./admin_purge.js')(app,db,UPLOAD_DIR,DATA_DIR)}catch(e){}
 app.use('/uploads',express.static(UPLOAD_DIR,{maxAge:'7d',setHeaders:r=>r.set('X-Content-Type-Options','nosniff')}));
 for(const d of['css','js','img'])app.use('/'+d,express.static(path.join(__dirname,d)));
 app.get('/',(req,res)=>res.sendFile(path.join(__dirname,'index.html')));
