@@ -10,3 +10,4 @@ e2e.test.js
 *.env
 .github_token.env
 .stripe_key.env
+.metered.env
