@@ -68,10 +68,10 @@ $(`<header><button class="icon" onclick="go('home')">←</button><b>${p.self?"My
 <div class="conv" style="justify-content:center;gap:28px"><span><b id="fc">${p.followers}</b> followers</span><span><b>${p.following}</b> following</span></div><p>${esc(p.bio)||'<span class="muted">No bio yet</span>'}</p>
 ${p.self?"":`<button class="btn ${p.is_following?"":"red"}" id="fb" onclick="follow()">${p.is_following?"Unfollow":"Follow"}</button> <button class="btn" id="msgb" onclick="openDm('${esc(p.username)}')">💬 Message</button>`}</div>
 ${p.self?`<div class="box"><div class="muted">Edit profile</div><input id="pdn" placeholder="Display name" value="${esc(p.display_name)}"><input id="pbio" placeholder="Bio" value="${esc(p.bio)}"><input id="pcity" placeholder="City (shown in Near you)" value="${esc(p.city)}">
-<label class="muted">Avatar <input id="pav" type="file" accept="image/*" style="width:auto"></label><button class="btn full red" style="width:100%" onclick="saveProfile()">Save</button>
+<label class="muted">Avatar <input id="pav" type="file" accept="image/*,.heic,.heif" style="width:auto"></label><button class="btn full red" style="width:100%" onclick="saveProfile()">Save</button>
 <div class="muted" style="margin-top:8px">🪙 <span data-coins>${S.coins.toLocaleString()}</span> · 💎 <span data-dia>${S.diamonds.toLocaleString()}</span></div></div>`:""}${navbar()}`)}
 async function follow(){const p=S.prof;try{const r=await api(`/api/users/${p.username}/follow`,{method:p.is_following?"DELETE":"POST"});p.is_following=!p.is_following;p.followers=r.followers;profile()}catch(e){toast(e.message)}}
-async function saveProfile(){try{const f=document.getElementById("pav").files[0];if(f){const fd=new FormData();fd.append("avatar",f);await api("/api/me/avatar",{method:"POST",body:fd})}
+async function saveProfile(){try{const f=document.getElementById("pav").files[0];if(f){toast("Uploading photo…");const fd=new FormData();const img=await prepImage(f);fd.append("avatar",img,img.name||"photo.jpg");await api("/api/me/avatar",{method:"POST",body:fd})}
  setMe(await api("/api/me",{method:"PUT",body:{display_name:document.getElementById("pdn").value,bio:document.getElementById("pbio").value,city:document.getElementById("pcity").value}}));S.prof={...S.me,self:1};toast("Profile saved");profile()}catch(e){toast(e.message)}}
 async function logout(){await api("/api/logout",{method:"POST"});sock?.disconnect();sock=null;setMe(null);S.screen="gate";render()}
 function watch(){const s=S.streams.find(x=>x.id==S.watch)||{user:{display_name:"…",username:""},viewers:0};
@@ -165,3 +165,15 @@ function dm(){const d=S.dm,u=d.user;
  ${d.match?`<div class="mbn">💘 You matched with ${esc(u.display_name)} on Meet Me</div>`:""}<div class="dml" id="dml">${d.messages.map(dmHtml).join("")||`<p class="muted" style="text-align:center;padding:20px">Say hi to ${esc(u.display_name)} 👋</p>`}</div>
  <div class="bar dmb"><input id="dmi" placeholder="Message..." maxlength="1000" onkeydown="event.key=='Enter'&&sendDm()"><button class="btn red" onclick="sendDm()">Send</button></div>`);const l=document.getElementById("dml");l.scrollTop=1e9}
 function sendDm(){const i=document.getElementById("dmi"),t=i.value.trim();if(!t)return;i.value="";sock.emit("dm",{to:S.dm.user.username,text:t},r=>{if(r.error)return toast(r.error);dmAdd({mine:true,text:t,at:r.at,read:false})})}
+
+// ===== Image prep for every upload: decode in the browser (EXIF-aware; Safari decodes HEIC),
+// shrink to max 1080px long side, re-encode JPEG 0.85. If the browser can't decode, send the original (server converts).
+async function prepImage(file,max=1080,q=.85){
+ try{let src,w,h;
+  try{src=await createImageBitmap(file,{imageOrientation:"from-image"});w=src.width;h=src.height}
+  catch(e){src=await new Promise((ok,no)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=no;i.src=URL.createObjectURL(file)});w=src.naturalWidth;h=src.naturalHeight} // <img> applies EXIF orientation
+  if(!w||!h)return file;const k=Math.min(1,max/Math.max(w,h)),cw=Math.round(w*k),ch=Math.round(h*k);
+  if(k===1&&file.type==="image/jpeg"&&file.size<1.5e6)return file;
+  const c=document.createElement("canvas");c.width=cw;c.height=ch;const x=c.getContext("2d");x.fillStyle="#07080c";x.fillRect(0,0,cw,ch);x.imageSmoothingQuality="high";x.drawImage(src,0,0,cw,ch);src.close?.();
+  const b=await new Promise(r=>c.toBlob(r,"image/jpeg",q));return b?new File([b],(file.name||"photo").replace(/\.[^.]+$/,"")+".jpg",{type:"image/jpeg"}):file}
+ catch(e){return file}}

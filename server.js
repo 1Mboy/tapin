@@ -123,16 +123,24 @@ app.get('/api/me',(req,res)=>{const u=req.session.uid&&getUser(req.session.uid);
 app.put('/api/me',auth,(req,res)=>{const{display_name,bio,city}=req.body||{};if([display_name,bio,city].some(v=>v!=null&&typeof v!=='string'))return res.status(400).json({error:'Invalid input'});
   db.prepare('UPDATE users SET display_name=?,bio=?,city=? WHERE id=?').run(String(display_name||req.user.username).trim().slice(0,40)||req.user.username,String(bio||'').slice(0,300),city==null?req.user.city||'':String(city).trim().slice(0,60),req.user.id);
   res.json(me(getUser(req.user.id)))});
-const upload=multer({storage:multer.diskStorage({destination:UPLOAD_DIR,filename:(r,f,cb)=>cb(null,crypto.randomBytes(12).toString('hex')+({'image/png':'.png','image/jpeg':'.jpg','image/webp':'.webp','image/gif':'.gif'}[f.mimetype]))}),
-  limits:{fileSize:+process.env.MAX_UPLOAD_BYTES||2*1024*1024,files:1,fields:5},fileFilter:(r,f,cb)=>cb(null,/^image\/(png|jpeg|webp|gif)$/.test(f.mimetype))});
-const isImage=f=>{const b=Buffer.alloc(12);const fd=fs.openSync(f,'r');fs.readSync(fd,b,0,12,0);fs.closeSync(fd);const h=b.toString('hex');
-  return h.startsWith('89504e47')||h.startsWith('ffd8ff')||h.startsWith('47494638')||(h.startsWith('52494646')&&b.toString('ascii',8,12)==='WEBP')};
-app.post('/api/me/avatar',uploadLimit,auth,(req,res)=>upload.single('avatar')(req,res,err=>{
-  if(err)return res.status(400).json({error:err.code==='LIMIT_FILE_SIZE'?'Image too large (max 2MB)':'Upload failed'});
-  if(!req.file)return res.status(400).json({error:'Upload a PNG/JPG/WebP/GIF under 2MB'});
-  if(!isImage(req.file.path)){fs.unlinkSync(req.file.path);return res.status(400).json({error:'Not a valid image'})}
+// Image uploads: accept any image up to 25 MB (iPhone photos/HEIC included), then normalize with sharp:
+// auto-rotate from EXIF, resize to max 1080px long side, strip metadata, save as JPEG.
+const sharp=require('sharp');sharp.cache(false);
+const MAX_UPLOAD=+process.env.MAX_UPLOAD_BYTES||40*1024*1024;
+const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:MAX_UPLOAD,files:1,fields:5},
+  fileFilter:(r,f,cb)=>cb(null,/^image\//.test(f.mimetype)||/\.(heic|heif|jpe?g|png|webp|gif|avif|tiff?|bmp)$/i.test(f.originalname||'')||f.mimetype==='application/octet-stream')});
+async function saveImage(buf,maxSide=1080){
+  const out=await sharp(buf,{failOn:'none',limitInputPixels:2e8}).rotate().resize({width:maxSide,height:maxSide,fit:'inside',withoutEnlargement:true})
+    .flatten({background:'#07080c'}).jpeg({quality:85,mozjpeg:true}).toBuffer();
+  const name=crypto.randomBytes(12).toString('hex')+'.jpg';fs.writeFileSync(path.join(UPLOAD_DIR,name),out);return '/uploads/'+name}
+const imageRoute=(field,apply)=>(req,res)=>upload.single(field)(req,res,async err=>{
+  if(err)return res.status(400).json({error:err.code==='LIMIT_FILE_SIZE'?`That photo is over ${Math.round(MAX_UPLOAD/1048576)} MB — please pick a smaller one`:'Upload failed, please try again'});
+  if(!req.file)return res.status(400).json({error:'Please choose a photo'});
+  let url;try{url=await saveImage(req.file.buffer)}catch(e){return res.status(415).json({error:"We couldn't read that photo. Try a JPG or PNG (or a screenshot of it)"})}
+  apply(req,url);res.json(me(getUser(req.user.id)))});
+app.post('/api/me/avatar',uploadLimit,auth,imageRoute('avatar',(req,url)=>{
   const old=getUser(req.user.id).avatar;if(old)fs.rm(path.join(UPLOAD_DIR,path.basename(old)),()=>{});
-  db.prepare('UPDATE users SET avatar=? WHERE id=?').run('/uploads/'+req.file.filename,req.user.id);res.json(me(getUser(req.user.id)))}));
+  db.prepare('UPDATE users SET avatar=? WHERE id=?').run(url,req.user.id)}));
 app.get('/api/users/:name',(req,res)=>{const u=db.prepare('SELECT * FROM users WHERE username=?').get(req.params.name);if(!u)return res.status(404).json({error:'Not found'});
   const p=pub(u);p.is_following=!!(req.session.uid&&db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(req.session.uid,u.id));
   p.live=[...rooms.values()].some(r=>r.uid===u.id);res.json(p)});
