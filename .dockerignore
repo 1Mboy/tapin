@@ -9,3 +9,4 @@ e2e.test.js
 .render_key.env
 *.env
 .github_token.env
+.stripe_key.env

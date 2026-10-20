@@ -10,3 +10,4 @@ __pycache__/
 .render_key.env
 *.key.env
 .github_token.env
+.stripe_key.env
