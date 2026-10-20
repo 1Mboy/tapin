@@ -6,3 +6,5 @@ shots
 .env
 .env.*
 e2e.test.js
+.render_key.env
+*.env

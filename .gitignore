@@ -7,3 +7,5 @@ data/
 __pycache__/
 *.pyc
 .DS_Store
+.render_key.env
+*.key.env
