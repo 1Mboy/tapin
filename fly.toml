@@ -1,0 +1,34 @@
+app = "tapin"              # change to your unique app name
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  DATA_DIR = "/data"
+  PORT = "8080"
+  APP_URL = "https://tapin.fly.dev"   # change to your app URL / custom domain
+  DEMO = "0"
+
+[mounts]
+  source = "tapin_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"   # keep sockets/live rooms alive
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

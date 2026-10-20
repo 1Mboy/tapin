@@ -1,0 +1,8 @@
+node_modules
+data
+shots
+*.log
+.git
+.env
+.env.*
+e2e.test.js

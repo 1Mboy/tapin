@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: tapin
+    runtime: docker
+    plan: starter            # persistent disks need a paid plan
+    region: oregon
+    healthCheckPath: /healthz
+    numInstances: 1          # live rooms + sockets are in memory; keep one instance
+    disk:
+      name: tapin-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /data
+      - key: PORT
+        value: "8080"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: APP_URL
+        sync: false          # e.g. https://tapin.onrender.com (or your custom domain)
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: TURN_URL
+        sync: false
+      - key: TURN_USER
+        sync: false
+      - key: TURN_PASS
+        sync: false
+      - key: DEMO
+        value: "0"
