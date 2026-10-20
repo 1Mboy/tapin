@@ -202,6 +202,8 @@ app.post('/api/chats/:name/read',auth,(req,res)=>{const o=db.prepare('SELECT id 
 app.use('/uploads',express.static(UPLOAD_DIR,{maxAge:'7d',setHeaders:r=>r.set('X-Content-Type-Options','nosniff')}));
 for(const d of['css','js','img'])app.use('/'+d,express.static(path.join(__dirname,d)));
 app.get('/',(req,res)=>res.sendFile(path.join(__dirname,'index.html')));
+app.get('/favicon.ico',(req,res)=>res.sendFile(path.join(__dirname,'img/favicon.ico')));
+app.get('/manifest.webmanifest',(req,res)=>res.type('application/manifest+json').sendFile(path.join(__dirname,'manifest.webmanifest')));
 
 // --- Realtime ---
 const server=http.createServer(app);

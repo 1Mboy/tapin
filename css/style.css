@@ -5,7 +5,7 @@ body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:radial
 .sample{background:linear-gradient(90deg,#1a1405,#2a1f05,#1a1405);color:var(--gold);font-size:10px;text-align:center;padding:3px;font-weight:700;letter-spacing:1px}
 header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;position:sticky;top:0;z-index:5;background:rgba(7,8,12,.88);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
 header b{font-size:17px;letter-spacing:.3px}
-.logo{display:flex;align-items:center}.logo i{width:48px;height:50px;background:url(../img/logo_tapdotin.png) center/contain no-repeat;display:inline-block;filter:drop-shadow(0 0 10px rgba(30,144,255,.45))}
+.logo{display:flex;align-items:center}.logo i{width:46px;height:46px;background:url(../img/logo_header.png) center/contain no-repeat;display:inline-block;filter:drop-shadow(0 0 10px rgba(30,144,255,.45))}
 .icon{background:linear-gradient(180deg,#232a38,#141821);border:1px solid var(--line);color:var(--txt);width:38px;height:38px;border-radius:50%;font-size:18px;cursor:pointer;margin-left:8px;box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
 .tabs{display:flex;gap:22px;padding:6px 14px 0;overflow-x:auto;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}
 .tabs b{padding:8px 0 10px;font-size:15px;font-weight:800;color:var(--mut);cursor:pointer;white-space:nowrap;position:relative;transition:.2s}
