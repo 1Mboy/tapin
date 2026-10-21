@@ -16,6 +16,13 @@ Nothing is deployed yet. This file lists what you need to do.
 | `TURN_USER`, `TURN_PASS` | with TURN | TURN credentials |
 | `CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN` | recommended | Cloudflare TURN (short-lived credentials fetched by the server) |
 | `METERED_DOMAIN`, `METERED_API_KEY` | alternative | Metered TURN |
+| `TURN_SECRET` | alternative | own coturn with `use-auth-secret`: with `TURN_URL`, the server mints a per-user HMAC credential (no static password) |
+| `TURN_TTL` | optional | lifetime of minted TURN credentials in seconds (default 14400 = 4 h, min 600) |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | **required for push** | Web Push keys. Generated once and stored in `.env` on the build box (never committed). Without them push is off. Don't rotate them: rotating invalidates every saved subscription. |
+| `VAPID_SUBJECT` | with push | `mailto:` contact for push services, e.g. `mailto:support@tap.in` |
+| `REWARD_TZ` | optional | time zone for the daily reward/challenge reset (default `America/New_York`) |
+| `DAILY_COINS`, `DAY7_BONUS` | optional | daily login reward (default 5) and day-7 bonus (default 20) |
+| `CALL_RING_SECS` | optional | how long a 1:1 video call rings (default 30) |
 | `STUN_URL` | no | overrides `stun:stun.l.google.com:19302` |
 | `DEMO` | no | `1` adds fake demo viewers (never credited) |
 | `COOKIE_SECURE` | no | only set `0` for local plain-HTTP testing of a production build |

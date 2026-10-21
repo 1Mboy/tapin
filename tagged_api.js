@@ -31,6 +31,7 @@ app.get('/api/discover',auth,(req,res)=>{const q=req.query,city=(typeof q.city==
     .all(req.user.id,req.user.id,req.user.id,gq(q.gender),gq(q.gender),city,city,city,city)
     .filter(u=>ageOk(u,q)&&distOk(req.user,u,{...q,city}));
   const vk=req.user.lat!=null;if(vk)rows.sort((a,b)=>{const ka=a.lat==null?1e9:Math.hypot(a.lat-req.user.lat,a.lng-req.user.lng),kb=b.lat==null?1e9:Math.hypot(b.lat-req.user.lat,b.lng-req.user.lng);return ka-kb});
+  const bst=u=>u.boost_until&&Date.parse(u.boost_until.replace(' ','T')+'Z')>Date.now()?1:0;rows.sort((a,b)=>bst(b)-bst(a)); // Profile Boost item: boosted people first
   res.json({city,has_location:req.user.lat!=null,users:rows.slice(0,120).map(u=>card(u,req.user.id)),
     likes:db.prepare('SELECT COUNT(*) n FROM meets WHERE target=? AND liked=1').get(req.user.id).n,
     views:db.prepare('SELECT COUNT(*) n FROM profile_views WHERE target=?').get(req.user.id).n})});

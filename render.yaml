@@ -31,5 +31,15 @@ services:
         sync: false
       - key: TURN_PASS
         sync: false
+      - key: VAPID_PUBLIC_KEY      # web push (copy from the box .env)
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:support@tap.in
+      - key: CF_TURN_KEY_ID        # Cloudflare Realtime TURN (server mints short-lived credentials)
+        sync: false
+      - key: CF_TURN_API_TOKEN
+        sync: false
       - key: DEMO
         value: "0"
