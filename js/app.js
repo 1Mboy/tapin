@@ -1,7 +1,7 @@
 // ===== Config constants (edit to change branding/pricing) =====
 const APP_NAME="Tap.in";
 const DIAMONDS_PER_USD=200;          // rate: 200 diamonds = $1
-const CASHOUT_MIN_DIAMONDS=50000;    // = $250
+const CASHOUT_MIN_DIAMONDS=60000;    // = $300
 const STREAMER_SHARE=0.5;            // streamer earns diamonds = 50% of gift coin price
 const giftDiamonds=c=>Math.max(1,Math.floor(c*STREAMER_SHARE));
 const COIN_PACKAGES=[{c:100,p:0.99},{c:550,p:4.99},{c:1200,p:9.99},{c:2500,p:19.99},{c:6500,p:49.99},{c:14000,p:99.99}];
@@ -69,7 +69,7 @@ const INFO={support:["Support","Need help? Email support@tap.in or use Send Feed
  dns:["Do Not Sell or Share My Personal Information",`${APP_NAME} does not sell or share your personal information for advertising. There are no ads on ${APP_NAME}.`],
  privacy:["Privacy Policy","We store your account, profile, messages and stream activity to run the service. Payments are processed by Stripe; we never see your card."],
  legal:["Legal Notice",`${APP_NAME} — live streaming & social. You must be 18+. Nudity or obscene behavior results in account deletion.`],
- partner:["Partner Policy","Streamers earn 50% of every gift as diamonds. 200 diamonds = $1. Cash out from 50,000 diamonds ($250). Payouts are reviewed manually."],
+ partner:["Partner Policy","Streamers earn 50% of every gift as diamonds. 200 diamonds = $1. Cash out from 60,000 diamonds ($300). Payouts are reviewed manually."],
  terms:["Terms of Service",`By using ${APP_NAME} you agree to be 18+, to follow community rules, and that virtual coins have no cash value.`]};
 function info(k){const[t,b]=INFO[k];sheet(`<div class="shd"><b>${t}</b><button class="x" onclick="closePops()">✕</button></div><p class="pad">${b}</p>`)}
 async function actPop(ev){ev.stopPropagation();const d=popAt(ev,`<div class="act"><h3>Activity</h3><div class="muted pad">Loading…</div></div>`,"actpop");
@@ -179,7 +179,7 @@ function drawLive(){const all=S.streams,favs=all.filter(s=>s.following);const el
  <aside class="card ann"><h4>ANNOUNCEMENTS</h4><div class="anl">${annos()}</div></aside></div>`}
 const annos=()=>[["#/gold","linear-gradient(135deg,#0b3d91,#1e90ff)","NEW!","BUY WITH COINS!","Send gifts your favorite streamers love"],
  ["#/live/tools/gifters","linear-gradient(135deg,#3a2a00,#c99400 60%,#ffc83d)","WEEKLY","TOP GIFTERS","See this week's biggest supporters"],
- ["#/diamonds","linear-gradient(135deg,#001b3d,#0066cc 60%,#00c6ff)","CREATORS","CASH OUT DIAMONDS","50,000 💎 = $250 · 200 💎 = $1"],
+ ["#/diamonds","linear-gradient(135deg,#001b3d,#0066cc 60%,#00c6ff)","CREATORS","CASH OUT DIAMONDS","60,000 💎 = $300 · 200 💎 = $1"],
  ["#/golive","linear-gradient(135deg,#141821,#0047ff)","APPLY","BE A FEATURED CREATOR!","Go live 3× this week to get featured"]]
  .map(([h,bg,k,t,s])=>`<a class="anb" href="${h}" style="background:${bg}"><small>${k}</small><b>${t}</b><span>${s}</span><i>LEARN MORE</i></a>`).join("");
 function shareLive(){const u=location.origin+"/#/live";(navigator.share?navigator.share({title:APP_NAME+" Live",url:u}):navigator.clipboard.writeText(u).then(()=>toast("Link copied"))).catch(()=>toast("Link: "+u))}

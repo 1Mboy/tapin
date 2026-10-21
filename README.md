@@ -1,7 +1,7 @@
 # Tap.in — live streaming app (Node + Express + SQLite + Socket.IO + WebRTC)
 
 The existing front end (`index.html`, `css/`, `js/app.js`, `img/`) is served by `server.js`.
-Gift list (152 `GIFTS`), the 50% streamer share, coin packs and cash-out rules (50,000 💎 min, 200 💎 = $1)
+Gift list (152 `GIFTS`), the 50% streamer share, coin packs and cash-out rules (60,000 💎 min, 200 💎 = $1)
 live in `js/app.js` and the server **reads them from that file**, so the client and server always agree.
 
 ## Run locally
