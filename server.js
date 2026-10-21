@@ -4,6 +4,7 @@ const express=require('express'),session=require('express-session'),bcrypt=requi
 const Database=require('better-sqlite3'),SqliteStore=require('better-sqlite3-session-store')(session);
 const {Server}=require('socket.io');
 const helmet=require('helmet'),rateLimit=require('express-rate-limit'),cors=require('cors');
+{const f=path.join(__dirname,'.env');if(fs.existsSync(f))for(const l of fs.readFileSync(f,'utf8').split('\n')){const m=l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);if(m&&process.env[m[1]]==null)process.env[m[1]]=m[2]}} // local .env (gitignored); real env always wins
 const PROD=process.env.NODE_ENV==='production';
 if(PROD&&!process.env.SESSION_SECRET){console.error('FATAL: SESSION_SECRET is required when NODE_ENV=production');process.exit(1)}
 const COOKIE_SECURE=process.env.COOKIE_SECURE?process.env.COOKIE_SECURE==='1':PROD; // set COOKIE_SECURE=0 only for local http testing
@@ -43,7 +44,7 @@ CREATE TABLE IF NOT EXISTS purchases(id INTEGER PRIMARY KEY,user_id INTEGER,stri
 CREATE TABLE IF NOT EXISTS payouts(id INTEGER PRIMARY KEY,user_id INTEGER,diamonds INTEGER,usd REAL,status TEXT DEFAULT 'pending',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
 // ---- Schema migrations (backup first when an existing DB is upgraded) ----
-const SCHEMA_VERSION=5;
+const SCHEMA_VERSION=6;
 {const cur=db.pragma('user_version',{simple:true});
  if(cur<SCHEMA_VERSION&&db.prepare('SELECT COUNT(*) n FROM users').get().n>0){
    db.pragma('wal_checkpoint(TRUNCATE)');const f=path.join(DATA_DIR,`backup-pre-migration-v${cur}-to-v${SCHEMA_VERSION}-${new Date().toISOString().replace(/[:.]/g,'-')}.db`);
@@ -80,6 +81,9 @@ CREATE TABLE IF NOT EXISTS shouts(id INTEGER PRIMARY KEY,stream_id INTEGER,user_
 CREATE TABLE IF NOT EXISTS pet_log(id INTEGER PRIMARY KEY,pet INTEGER,buyer INTEGER,seller INTEGER,price INTEGER,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
 addCol('payouts','paypal',"TEXT DEFAULT ''");addCol('payouts','gross_usd','REAL');addCol('payouts','fee_usd','REAL');addCol('payouts','net_usd','REAL');addCol('users','terms_at','TEXT');
+addCol('dms','kind',"TEXT NOT NULL DEFAULT 'text'");addCol('dms','media','TEXT');addCol('dms','gift_k','INTEGER');
+addCol('users','verified','INTEGER NOT NULL DEFAULT 0');addCol('users','onboarded','INTEGER NOT NULL DEFAULT 1');addCol('users','interests',"TEXT DEFAULT '[]'");
+addCol('users','boost_until','TEXT');addCol('users','spotlight_until','TEXT');addCol('users','xp2_until','TEXT');
 db.pragma(`user_version=${SCHEMA_VERSION}`);
 db.prepare("UPDATE streams SET ended_at=CURRENT_TIMESTAMP WHERE ended_at IS NULL").run(); // nothing is live after restart
 
@@ -89,15 +93,20 @@ const levelOf=xp=>{let n=1;while(50*n*n<=xp)n++;const lo=50*(n-1)*(n-1),hi=50*n*
 const RANKS=[['Bronze',0],['Silver',10000],['Gold',50000],['Platinum',200000],['Diamond',1000000],['Legend',5000000]];
 const rankOf=tot=>{let i=0;while(i<RANKS.length-1&&tot>=RANKS[i+1][1])i++;const lo=RANKS[i][1],hi=RANKS[i+1]?.[1]??lo*2;const step=(hi-lo)/5;const t=Math.min(4,Math.floor((tot-lo)/step));
   const tlo=lo+t*step;return{name:RANKS[i][0],tier:['I','II','III','IV','V'][t],label:`${RANKS[i][0]} ${['I','II','III','IV','V'][t]}`,total:tot,pct:Math.round((tot-tlo)/step*100)}};
+const rankIdx=tot=>{let i=0;while(i<RANKS.length-1&&tot>=RANKS[i+1][1])i++;return i};
+// Streamer level perks (by diamonds received): avatar frame from Silver, 5 guest seats from Gold, rank-exclusive gifts (GIFTS lock "R:<rank>")
+const seatsFor=uid=>rankIdx(received(uid))>=2?5:3;
+const giftLockOk=(g,su,hostUid)=>{const L=g[5];if(L==null)return true;if(typeof L==='number')return levelOf(su.xp||0).n>=L;if(L==='VIP'||L==='SUB')return isPremium(su);
+  if(typeof L==='string'&&L.startsWith('R:'))return hostUid!=null&&rankIdx(received(hostUid))>=RANKS.findIndex(x=>x[0]===L.slice(2));return false};
 const settingsOf=u=>{let s={};try{s=JSON.parse(u.settings||'{}')}catch(e){}return{dating_mode:true,hide_in_match:false,contact:'all',email_newsletter:true,email_pets:true,email_luv:true,email_friends:true,language:'English',units:'mi',...s}};
 const received=uid=>db.prepare('SELECT COALESCE(SUM(diamonds),0) n FROM gifts_sent WHERE receiver=?').get(uid).n;
 const ADMIN_ID=13; // Michael (Moneymike). Admin is checked on the server only by this id.
 const pub=u=>u&&({id:u.id,username:u.username,display_name:u.display_name||u.username,bio:u.bio||'',avatar:u.avatar,city:u.city||'',online:online.has(u.id),
- gender:u.gender||'',age:ageOf(u.dob),level:levelOf(u.xp||0).n,premium:isPremium(u),new_user:!!u.created_at&&Date.now()-Date.parse(String(u.created_at).replace(' ','T')+'Z')<7*864e5,...(u.id===ADMIN_ID?{verified:true}:{}),
+ gender:u.gender||'',age:ageOf(u.dob),level:levelOf(u.xp||0).n,premium:isPremium(u),new_user:!!u.created_at&&Date.now()-Date.parse(String(u.created_at).replace(' ','T')+'Z')<7*864e5,...(u.id===ADMIN_ID||u.verified?{verified:true}:{}),frame:(i=>i>=1?RANKS[i][0].toLowerCase():null)(rankIdx(received(u.id))),
  followers:db.prepare('SELECT COUNT(*) n FROM follows WHERE followee=?').get(u.id).n,vs_wins:db.prepare('SELECT COUNT(*) n FROM battles WHERE winner=?').get(u.id).n,
  following:db.prepare('SELECT COUNT(*) n FROM follows WHERE follower=?').get(u.id).n});
 const me=u=>u&&({...pub(u),email:u.email,coins:u.coins,diamonds:u.diamonds,xp:levelOf(u.xp||0),settings:settingsOf(u),dob:u.dob,pet_cash:u.pet_cash,
- received:received(u.id),rank:rankOf(received(u.id)),created_at:u.created_at,premium_until:isPremium(u)?u.premium_until:null,has_location:u.lat!=null,...(u.id===ADMIN_ID?{admin:true}:{})});
+ received:received(u.id),rank:rankOf(received(u.id)),created_at:u.created_at,premium_until:isPremium(u)?u.premium_until:null,has_location:u.lat!=null,onboarded:!!u.onboarded,interests:(()=>{try{return JSON.parse(u.interests||'[]')}catch(e){return[]}})(),seats:seatsFor(u.id),...(u.id===ADMIN_ID?{admin:true}:{})});
 // ---- Distance (coarse location, ~11 km grid) ----
 const KM_PER_MI=1.609344;
 const kmBetween=(a,b)=>{if(a?.lat==null||b?.lat==null)return null;const r=Math.PI/180,dLa=(b.lat-a.lat)*r,dLo=(b.lng-a.lng)*r;
@@ -116,7 +125,8 @@ const friendState=(a,b)=>{const r=db.prepare('SELECT * FROM friends WHERE (reque
 const gq=g=>g==='m'||g==='f'?g:'';
 const ageOk=(u,q)=>{const a=ageOf(u.dob);const lo=+q.min||18,hi=+q.max||99;return a==null||(a>=lo&&a<=hi)};
 function notify(uid,type,actor,text,link){if(!uid||uid===actor)return;db.prepare('INSERT INTO notifications(user_id,type,actor,text,link) VALUES(?,?,?,?,?)').run(uid,type,actor||null,text,link||'');
-  try{io.to('u'+uid).emit('activity',{unread:db.prepare('SELECT COUNT(*) n FROM notifications WHERE user_id=? AND read_at IS NULL').get(uid).n})}catch(e){}}
+  try{io.to('u'+uid).emit('activity',{unread:db.prepare('SELECT COUNT(*) n FROM notifications WHERE user_id=? AND read_at IS NULL').get(uid).n})}catch(e){}
+  try{gaps.push(uid,type,actor,text,link)}catch(e){}}
 
 // --- App ---
 const app=express();if(PROD||process.env.TRUST_PROXY)app.set('trust proxy',1);app.disable('x-powered-by');
@@ -153,21 +163,24 @@ app.post('/api/paypal/webhook',express.raw({type:'*/*',limit:'100kb'}),async(req
 app.use(express.json({limit:'20kb'}));app.use(sess);
 const auth=(req,res,next)=>{const u=req.session.uid&&getUser(req.session.uid);if(!u)return res.status(401).json({error:'Please log in'});req.user=u;next()};
 
-const ICE=()=>{const l=[{urls:(process.env.STUN_URL||'stun:stun.l.google.com:19302').split(',')}];
-  if(process.env.TURN_URL)l.push({urls:process.env.TURN_URL.split(',').map(s=>s.trim()),username:process.env.TURN_USER||'',credential:process.env.TURN_PASS||''});return l};
+const TURN_TTL=Math.max(600,+process.env.TURN_TTL||4*3600); // seconds a minted TURN credential stays valid
+const ICE=uid=>{const l=[{urls:(process.env.STUN_URL||'stun:stun.l.google.com:19302').split(',')}];
+  if(process.env.TURN_URL&&process.env.TURN_SECRET){ // coturn "use-auth-secret" REST scheme: short-lived HMAC credential minted per user
+    const user=`${Math.floor(Date.now()/1000)+TURN_TTL}:${uid||0}`;l.push({urls:process.env.TURN_URL.split(',').map(s=>s.trim()),username:user,credential:crypto.createHmac('sha1',process.env.TURN_SECRET).update(user).digest('base64')})}
+  else if(process.env.TURN_URL)l.push({urls:process.env.TURN_URL.split(',').map(s=>s.trim()),username:process.env.TURN_USER||'',credential:process.env.TURN_PASS||''});return l};
 const PREMIUM_USD=+process.env.PREMIUM_USD||9.99;
-app.get('/api/config',(req,res)=>res.json({demo:DEMO,payments:!!stripe&&STRIPE_LIVE,stripe_live:STRIPE_LIVE,paypal:paypal.enabled()?{client_id:process.env.PAYPAL_CLIENT_ID,env:paypal.ENV}:null,premium_usd:PREMIUM_USD,stripe_test:!!stripe&&/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY||'')}));
+app.get('/api/config',(req,res)=>res.json({demo:DEMO,push:gaps.pushKey(),payments:!!stripe&&STRIPE_LIVE,stripe_live:STRIPE_LIVE,paypal:paypal.enabled()?{client_id:process.env.PAYPAL_CLIENT_ID,env:paypal.ENV}:null,premium_usd:PREMIUM_USD,stripe_test:!!stripe&&/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY||'')}));
 let iceCache={t:0,list:null};
 async function dynamicIce(){ // Cloudflare Realtime TURN (CF_TURN_KEY_ID+CF_TURN_API_TOKEN) or Metered (METERED_DOMAIN+METERED_API_KEY); cached 1h
-  if(iceCache.list&&Date.now()-iceCache.t<36e5)return iceCache.list;let list=null;
+  if(iceCache.list&&Date.now()-iceCache.t<Math.min(36e5,TURN_TTL*500))return iceCache.list;let list=null; // reuse for at most half the credential lifetime
   try{if(process.env.CF_TURN_KEY_ID&&process.env.CF_TURN_API_TOKEN){const r=await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${process.env.CF_TURN_KEY_ID}/credentials/generate-ice-servers`,
-      {method:'POST',headers:{Authorization:'Bearer '+process.env.CF_TURN_API_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({ttl:86400}),signal:AbortSignal.timeout(5000)});
+      {method:'POST',headers:{Authorization:'Bearer '+process.env.CF_TURN_API_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({ttl:TURN_TTL}),signal:AbortSignal.timeout(5000)});
       if(r.ok){const j=await r.json();list=Array.isArray(j.iceServers)?j.iceServers:[j.iceServers]}}
     else if(process.env.METERED_DOMAIN&&process.env.METERED_API_KEY){const r=await fetch(`https://${process.env.METERED_DOMAIN}/api/v1/turn/credentials?apiKey=${encodeURIComponent(process.env.METERED_API_KEY)}`,{signal:AbortSignal.timeout(5000)});
       if(r.ok)list=await r.json()}}catch(e){console.error('TURN credential fetch failed:',e.message)}
   if(list){iceCache={t:Date.now(),list}}return list}
 app.get('/api/ice',async(req,res)=>{if(!req.session.uid)return res.status(401).json({error:'Please log in'});res.set('Cache-Control','no-store');
-  const dyn=await dynamicIce();res.json({iceServers:dyn?[{urls:['stun:stun.l.google.com:19302']},...dyn]:ICE(),turn:!!(dyn||process.env.TURN_URL)})});
+  const dyn=await dynamicIce();res.json({iceServers:dyn?[{urls:['stun:stun.l.google.com:19302']},...dyn]:ICE(req.session.uid),turn:!!(dyn||process.env.TURN_URL),ttl:TURN_TTL})});
 app.post('/api/signup',authLimit,async(req,res)=>{
   const{email,username,password,dob,display_name,gender,tos}=req.body||{};if(tos!==true)return res.status(400).json({error:'Please confirm you are 18+ and agree to the Terms'});if(gender!=null&&!['m','f',''].includes(gender))return res.status(400).json({error:'Invalid gender'});
   if(!/^[a-z0-9_.]{3,24}$/i.test(username||''))return res.status(400).json({error:'Username: 3-24 letters, numbers, _ or .'});
@@ -178,7 +191,7 @@ app.post('/api/signup',authLimit,async(req,res)=>{
   const age=(Date.now()-new Date(dob))/31557600000;if(!(age>=18&&age<120))return res.status(400).json({error:'You must be 18+'});
   try{const r=db.prepare('INSERT INTO users(email,username,pass,display_name,dob,coins,gender,terms_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)')
       .run(email||null,username,await bcrypt.hash(password,12),(display_name||username).trim().slice(0,40),dob,START_COINS,gender||'');
-    req.session.regenerate(()=>{req.session.uid=r.lastInsertRowid;res.json(me(getUser(r.lastInsertRowid)))});
+    db.prepare('UPDATE users SET onboarded=0 WHERE id=?').run(r.lastInsertRowid);req.session.regenerate(()=>{req.session.uid=r.lastInsertRowid;res.json(me(getUser(r.lastInsertRowid)))});
   }catch(e){res.status(409).json({error:'Email or username already taken'})}
 });
 app.post('/api/login',authLimit,async(req,res)=>{const{login,password}=req.body||{};if(typeof login!=='string'||typeof password!=='string'||login.length>254||password.length>72)return res.status(400).json({error:'Wrong login or password'});
@@ -218,14 +231,14 @@ app.get('/api/users/:name',(req,res)=>{const u=db.prepare('SELECT * FROM users W
     db.prepare('INSERT INTO profile_views(viewer,target) VALUES(?,?) ON CONFLICT(viewer,target) DO UPDATE SET created_at=CURRENT_TIMESTAMP').run(viewer,u.id);
     if(!prev)notify(u.id,'view',viewer,'viewed your profile','#/discover/views');
     p.friend=friendState(viewer,u.id);p.blocked=!!db.prepare('SELECT 1 FROM blocks WHERE blocker=? AND blocked=?').get(viewer,u.id);
-    p.match=isMatch(viewer,u.id);p.photos=photosOf(u.id);p.distance=distLabel(getUser(viewer),u);p.luv_today=!!db.prepare("SELECT 1 FROM luv WHERE sender=? AND receiver=? AND created_at>datetime('now','-1 day')").get(viewer,u.id)}
+    p.match=isMatch(viewer,u.id);p.photos=photosOf(u.id);try{p.interests=JSON.parse(u.interests||'[]')}catch(e){p.interests=[]}p.distance=distLabel(getUser(viewer),u);p.luv_today=!!db.prepare("SELECT 1 FROM luv WHERE sender=? AND receiver=? AND created_at>datetime('now','-1 day')").get(viewer,u.id)}
   res.json(p)});
 app.post('/api/users/:name/follow',auth,(req,res)=>{const u=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
   if(!u||u.id===req.user.id)return res.status(400).json({error:"Can't follow"});if(db.prepare('INSERT OR IGNORE INTO follows(follower,followee) VALUES(?,?)').run(req.user.id,u.id).changes){
     notify(u.id,'fan',req.user.id,'became your fan','#/u/'+req.user.username);const lr=[...rooms.values()].find(r=>r.uid===u.id);if(lr){lr.newFans=(lr.newFans||0)+1}}res.json(pub(getUser(u.id)))});
 app.delete('/api/users/:name/follow',auth,(req,res)=>{const u=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
   if(u)db.prepare('DELETE FROM follows WHERE follower=? AND followee=?').run(req.user.id,u.id);res.json(u?pub(getUser(u.id)):{})});
-app.get('/api/streams',(req,res)=>res.json([...rooms.values()].filter(r=>!(req.session.uid&&isBlocked(req.session.uid,r.uid))).map(r=>({id:r.id,title:r.title,tags:r.tags||'',viewers:r.viewers.size,hearts:r.hearts||0,started:r.started,dating:settingsOf(getUser(r.uid)).dating_mode,user:pub(getUser(r.uid)),distance:req.session.uid?distLabel(getUser(req.session.uid),getUser(r.uid)):null,near:req.session.uid?distOk(getUser(req.session.uid),getUser(r.uid),req.query):true,guest:r.guests?.size?pub(getUser([...r.guests.values()][0])):null,guests:r.guests?.size||0,vs:!!r.vs,
+app.get('/api/streams',(req,res)=>res.json([...rooms.values()].filter(r=>!(req.session.uid&&isBlocked(req.session.uid,r.uid))).map(r=>({id:r.id,title:r.title,tags:r.tags||'',spotlight:gaps.active(getUser(r.uid)?.spotlight_until),viewers:r.viewers.size,hearts:r.hearts||0,started:r.started,dating:settingsOf(getUser(r.uid)).dating_mode,user:pub(getUser(r.uid)),distance:req.session.uid?distLabel(getUser(req.session.uid),getUser(r.uid)):null,near:req.session.uid?distOk(getUser(req.session.uid),getUser(r.uid),req.query):true,guest:r.guests?.size?pub(getUser([...r.guests.values()][0])):null,guests:r.guests?.size||0,vs:!!r.vs,
   following:!!(req.session.uid&&db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(req.session.uid,r.uid))}))));
 
 app.post('/api/checkout',moneyLimit,auth,async(req,res)=>{if(!stripe||!STRIPE_LIVE)return res.status(503).json({error:'Payments not connected yet'});
@@ -267,7 +280,7 @@ app.get('/api/meet/next',auth,(req,res)=>{
   const u=db.prepare(`SELECT u.*,EXISTS(SELECT 1 FROM meets m WHERE m.voter=u.id AND m.target=? AND m.liked=1) likes_me FROM users u
     WHERE u.id<>? AND u.id NOT IN(SELECT target FROM meets WHERE voter=?) AND u.id NOT IN(SELECT blocked FROM blocks WHERE blocker=?) AND u.id NOT IN(SELECT blocker FROM blocks WHERE blocked=?)
       AND COALESCE(json_extract(u.settings,'$.hide_in_match'),0)=0 AND COALESCE(json_extract(u.settings,'$.dating_mode'),1)=1
-      AND (?='' OR u.gender=?) ORDER BY likes_me DESC,(u.city<>'' AND u.city=? COLLATE NOCASE) DESC,RANDOM() LIMIT 40`)
+      AND (?='' OR u.gender=?) ORDER BY likes_me DESC,(u.boost_until IS NOT NULL AND u.boost_until>datetime('now')) DESC,(u.city<>'' AND u.city=? COLLATE NOCASE) DESC,RANDOM() LIMIT 40`)
     .all(req.user.id,req.user.id,req.user.id,req.user.id,req.user.id,gq(req.query.gender),gq(req.query.gender),req.user.city||'').filter(x=>ageOk(x,req.query)&&distOk(req.user,x,req.query))[0];
   const stats={likes_me:db.prepare('SELECT COUNT(*) n FROM meets WHERE target=? AND liked=1').get(req.user.id).n,
     matches:db.prepare('SELECT COUNT(*) n FROM matches WHERE a=? OR b=?').get(req.user.id,req.user.id).n};
@@ -286,17 +299,17 @@ app.get('/api/likes',auth,(req,res)=>res.json(db.prepare('SELECT u.* FROM meets 
 const unreadTotal=uid=>db.prepare('SELECT COUNT(*) n FROM dms WHERE receiver=? AND read_at IS NULL').get(uid).n;
 app.get('/api/chats',auth,(req,res)=>{const me_=req.user.id;
   const rows=db.prepare(`SELECT CASE WHEN sender=? THEN receiver ELSE sender END other,MAX(id) last FROM dms WHERE sender=? OR receiver=? GROUP BY other ORDER BY last DESC LIMIT 100`).all(me_,me_,me_);
-  const convs=rows.map(r=>{const m=db.prepare('SELECT * FROM dms WHERE id=?').get(r.last);return{user:pub(getUser(r.other)),last:{text:m.text,mine:m.sender===me_,at:m.created_at},
+  const convs=rows.map(r=>{const m=db.prepare('SELECT * FROM dms WHERE id=?').get(r.last);return{user:pub(getUser(r.other)),last:{text:dmPreview(m),kind:m.kind,mine:m.sender===me_,at:m.created_at},
     unread:db.prepare('SELECT COUNT(*) n FROM dms WHERE sender=? AND receiver=? AND read_at IS NULL').get(r.other,me_).n,match:isMatch(me_,r.other)}});
   const have=new Set(rows.map(r=>r.other));
   const newMatches=db.prepare('SELECT u.* FROM matches m JOIN users u ON u.id=(CASE WHEN m.a=? THEN m.b ELSE m.a END) WHERE m.a=? OR m.b=? ORDER BY m.created_at DESC').all(me_,me_,me_).filter(u=>!have.has(u.id)).map(pub);
   res.json({convs,new_matches:newMatches,unread:unreadTotal(me_)})});
 app.get('/api/chats/:name',auth,(req,res)=>{const o=db.prepare('SELECT * FROM users WHERE username=?').get(req.params.name);if(!o||o.id===req.user.id)return res.status(404).json({error:'Not found'});
   const before=Number.isInteger(+req.query.before)&&+req.query.before>0?+req.query.before:1e15;
-  const msgs=db.prepare('SELECT id,sender,text,created_at,read_at FROM dms WHERE ((sender=? AND receiver=?) OR (sender=? AND receiver=?)) AND id<? ORDER BY id DESC LIMIT 100').all(req.user.id,o.id,o.id,req.user.id,before).reverse();
+  const msgs=db.prepare('SELECT id,sender,text,kind,media,gift_k,created_at,read_at FROM dms WHERE ((sender=? AND receiver=?) OR (sender=? AND receiver=?)) AND id<? ORDER BY id DESC LIMIT 100').all(req.user.id,o.id,o.id,req.user.id,before).reverse();
   const r=db.prepare('UPDATE dms SET read_at=CURRENT_TIMESTAMP WHERE sender=? AND receiver=? AND read_at IS NULL').run(o.id,req.user.id);
   if(r.changes){io.to('u'+o.id).emit('dm-read',{by:req.user.username});io.to('u'+req.user.id).emit('unread',unreadTotal(req.user.id))}
-  res.json({user:pub(o),match:isMatch(req.user.id,o.id),messages:msgs.map(m=>({id:m.id,mine:m.sender===req.user.id,text:m.text,at:m.created_at,read:!!m.read_at}))})});
+  res.json({user:pub(o),match:isMatch(req.user.id,o.id),messages:msgs.map(m=>({id:m.id,mine:m.sender===req.user.id,text:m.text,kind:m.kind,media:m.media,k:m.gift_k,at:m.created_at,read:!!m.read_at}))})});
 app.post('/api/chats/:name/read',auth,(req,res)=>{const o=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
   if(o)db.prepare('UPDATE dms SET read_at=CURRENT_TIMESTAMP WHERE sender=? AND receiver=? AND read_at IS NULL').run(o.id,req.user.id);res.json({unread:unreadTotal(req.user.id)})});
 // ---- Password: change (logged in) and reset by emailed link ----
@@ -357,6 +370,18 @@ app.post('/api/admin/grant',limiter(30,60e3),adminOnly,(req,res)=>{const{usernam
   console.log(`COIN GRANT #${r.grant_id}: ${amount} to #${u.id} by #${req.user.id}`);pushBalance(u.id);res.json(r)});
 app.get('/api/admin/payouts',adminOnly,(req,res)=>res.json(db.prepare('SELECT p.id,p.user_id,u.username,p.diamonds,p.usd,p.gross_usd,p.fee_usd,p.net_usd,p.status,p.paypal,p.created_at FROM payouts p LEFT JOIN users u ON u.id=p.user_id ORDER BY p.id DESC LIMIT 100').all()));
 app.get('/admin',(req,res)=>res.redirect('/#/admin'));
+// ---- DMs (text / photo / gift / call log) share one delivery path ----
+const dmPreview=m=>m.kind==='photo'?'📷 Photo':m.kind==='gift'?'🎁 '+(GIFTS[m.gift_k]?.[1]||'Gift'):m.kind==='call'?'📹 '+m.text:m.text;
+const dmBlockReason=(uid,o)=>{if(!o||o.id===uid)return 'Unknown user';if(isBlocked(uid,o.id))return "You can't message this person";
+  if(settingsOf(o).contact==='friends'&&friendState(uid,o.id)!=='friends'&&!isMatch(uid,o.id)&&!db.prepare('SELECT 1 FROM dms WHERE sender=? AND receiver=?').get(o.id,uid))return 'This person only accepts messages from friends';return null};
+function deliverDm(uid,o,{text='',kind='text',media=null,gift_k=null},exceptSock){
+  const id=db.prepare('INSERT INTO dms(sender,receiver,text,kind,media,gift_k) VALUES(?,?,?,?,?,?)').run(uid,o.id,text,kind,media,gift_k).lastInsertRowid;const m=db.prepare('SELECT * FROM dms WHERE id=?').get(id);
+  const me_=getUser(uid),base={id,text,kind,media,k:gift_k,at:m.created_at};io.to('u'+o.id).emit('dm',{...base,from:me_.username,user:pub(me_),mine:false});io.to('u'+o.id).emit('unread',unreadTotal(o.id));
+  (exceptSock?exceptSock.to('u'+uid):io.to('u'+uid)).emit('dm',{...base,from:o.username,with:o.username,mine:true});
+  if(kind!=='call')gaps.push(o.id,kind==='gift'?'gift':'dm',uid,kind==='photo'?'sent you a photo 📷':kind==='gift'?`sent you ${GIFTS[gift_k]?.[1]||'a gift'} 🎁`:text,'#/chats/'+me_.username);
+  if(kind!=='call')gaps.track(uid,'dm');return {id,at:m.created_at,...base}}
+const gaps=require('./gaps_api.js')({app,db,auth,adminOnly,pub,me,getUser,limiter,uploadLimit,moneyLimit,upload,sharp,UPLOAD_DIR,DATA_DIR,ADMIN_ID,GIFTS,giftDiamonds,giftLockOk,levelOf,isPremium,received,rankIdx,RANKS,seatsFor,
+  isBlocked,isMatch,dmBlockReason,deliverDm,pushBalance:(...a)=>pushBalance(...a),notify:(...a)=>notify(...a),get io(){return io},get rooms(){return rooms},online});
 // ---- Room bans (persist across a host's streams): kind 'kick' = can't enter, 'mute' = can't chat ----
 app.get('/api/roombans',auth,(req,res)=>res.json(db.prepare('SELECT b.kind,b.created_at,u.* FROM room_bans b JOIN users u ON u.id=b.user_id WHERE b.host=? ORDER BY b.created_at DESC').all(req.user.id).map(u=>({...pub(u),kind:u.kind,at:u.created_at}))));
 app.delete('/api/roombans/:name/:kind',auth,(req,res)=>{const u=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);if(!u)return res.status(404).json({error:'Not found'});
@@ -386,7 +411,7 @@ function deleteUser(id){const u=getUser(id);if(!u)return 0;const q=(sql,...a)=>d
     q('DELETE FROM dms WHERE sender=? OR receiver=?',id,id);q('DELETE FROM profile_views WHERE viewer=? OR target=?',id,id);q('DELETE FROM friends WHERE requester=? OR addressee=?',id,id);
     q('DELETE FROM notifications WHERE user_id=? OR actor=?',id,id);q('DELETE FROM blocks WHERE blocker=? OR blocked=?',id,id);q('DELETE FROM bouncers WHERE streamer=? OR user_id=?',id,id);q('DELETE FROM room_bans WHERE host=? OR user_id=?',id,id);
     q('DELETE FROM feedback WHERE user_id=?',id);q('DELETE FROM luv WHERE sender=? OR receiver=?',id,id);q('DELETE FROM pet_log WHERE pet=? OR buyer=? OR seller=?',id,id,id);
-    q('DELETE FROM reports WHERE reporter=? OR target=?',id,id);q('DELETE FROM pw_resets WHERE user_id=?',id);
+    q('DELETE FROM reports WHERE reporter=? OR target=?',id,id);gaps.deleteUser(id);q('DELETE FROM pw_resets WHERE user_id=?',id);
     const ph=db.prepare('SELECT url FROM photos WHERE user_id=?').all(id);q('DELETE FROM photos WHERE user_id=?',id);
     q('UPDATE users SET pet_owner=NULL WHERE pet_owner=?',id);try{q("DELETE FROM sessions WHERE json_extract(sess,'$.uid')=?",id)}catch(e){}q('DELETE FROM users WHERE id=?',id);
     for(const f of[u.avatar,...ph.map(p=>p.url)])if(f&&/^\/uploads\/[\w.-]+$/.test(f))fs.rm(path.join(UPLOAD_DIR,path.basename(f)),()=>{})})();
@@ -427,6 +452,7 @@ const endRoom=r=>{if(!r)return;clearTimeout(r.ng?.timer);vsRoomGone(r);rooms.del
   const guests=[...(r.ghist?.keys()||[])].map(u=>{const x=per.find(p=>p.receiver===u);return{user:pub(getUser(u)),diamonds:x?.d||0,gifts:x?.n||0}}).filter(g=>g.user);
   const gifters=db.prepare('SELECT sender,SUM(coins) c,SUM(diamonds) d FROM gifts_sent WHERE stream_id=? GROUP BY sender ORDER BY d DESC LIMIT 5').all(r.id).map(x=>({user:pub(getUser(x.sender)),diamonds:x.d,coins:x.c})).filter(x=>x.user);
   const sum={duration:dur,peak:r.peak||0,hearts:r.hearts||0,new_fans:r.newFans||0,viewers:r.uniq?.size||0,guests,gifters,gifts:per.reduce((a,p)=>a+p.n,0),diamonds:db.prepare('SELECT diamonds FROM streams WHERE id=?').get(r.id)?.diamonds||0};
+  if(dur>=60)try{gaps.track(r.uid,'live',Math.floor(dur/60))}catch(e){}
   io.to(r.host).emit('summary',sum);io.to('s'+r.id).emit('ended');io.emit('streams');return sum};
 // ---- VS battles (Tagged/Bigo-style PK). All state in memory; the server owns the clock and the scores. ----
 const VS_SECS=+process.env.VS_SECS||300,VS_PUNISH_SECS=+process.env.VS_PUNISH_SECS||60,VS_INVITE_SECS=+process.env.VS_INVITE_SECS||15;
@@ -450,13 +476,13 @@ function vsStart(a,c){if(vsQueue===a||vsQueue===c)vsQueue=null;
 // winnerRoom: forced winner (forfeit / disconnect); otherwise decided by score
 function vsFinish(b,winnerRoom,reason){if(b.phase!=='battle')return;clearTimeout(b.timer);
   let w=winnerRoom?vsSide(b,winnerRoom):b.scores[0]>b.scores[1]?0:b.scores[1]>b.scores[0]?1:null;
-  b.winner=w==null?null:[b.a,b.b][w].uid;b.reason=reason;b.phase='punish';
+  b.winner=w==null?null:[b.a,b.b][w].uid;b.reason=reason;b.phase='punish';b.a.lastOpp=b.b;b.b.lastOpp=b.a;
   try{db.prepare('INSERT INTO battles(a_uid,b_uid,a_stream,b_stream,a_score,b_score,winner,reason,started_at) VALUES(?,?,?,?,?,?,?,?,?)')
     .run(b.a.uid,b.b.uid,b.a.id,b.b.id,b.scores[0],b.scores[1],b.winner,reason,new Date(b.started).toISOString())}catch(e){console.error('battle record failed:',e.message)}
   // forfeits/disconnects skip the punishment round: short result banner, then back to normal
   const secs=reason==='time'?VS_PUNISH_SECS:Math.min(4,VS_PUNISH_SECS);b.ends=Date.now()+secs*1000;
   vsEmit(b,'vs-result',vsState(b));b.timer=setTimeout(()=>vsClose(b),secs*1000)}
-function vsClose(b){if(b.phase==='done')return;clearTimeout(b.timer);b.phase='done';
+function vsClose(b){if(b.phase==='done')return;clearTimeout(b.timer);b.phase='done';b.a.lastOpp=b.b;b.b.lastOpp=b.a;
   for(const r of [b.a,b.b])if(r.vs===b)r.vs=null;vsEmit(b,'vs-end',{id:b.id});io.emit('streams')}
 // a room is going away (end stream / disconnect): the other side wins
 function vsRoomGone(r){for(const [k,i] of vsInvites)if(i.from===r||i.to===r){clearTimeout(i.timer);vsInvites.delete(k);const o=i.from===r?i.to:i.from;io.to(o.host).emit('vs-invite-gone',{id:k})}
@@ -468,24 +494,24 @@ const viewerList=r=>{const top=topGifters(r.id,r.uid).map(x=>x.id);return [...r.
 const pushViewers=r=>io.to('s'+r.id).emit('viewers',viewerList(r));
 const gm=(r,sid)=>{const m=r.gmute.get(sid)||{};return{host:!!m.host,self:!!m.self}};
 const guestList=r=>[...r.guests].map(([sid,u])=>({sid,user:pub(getUser(u)),mic:gm(r,sid)}));
-const MAX_GUESTS=3;
+const MAX_GUESTS=3;const seats=r=>r.seats||(r.seats=seatsFor(r.uid)); // Gold+ streamers get 5 guest seats
 const dropViewer=(r,sid)=>{r.viewers.delete(sid);r.vu.delete(sid);r.reqs?.delete(sid);r.invites.delete(sid);io.to(r.host).emit('viewer-left',{sid});if(r.vs){const o=r.vs.a===r?r.vs.b:r.vs.a;io.to(o.host).emit('viewer-left',{sid})}for(const g of r.guests.keys())io.to(g).emit('viewer-left',{sid});io.to('s'+r.id).emit('count',r.viewers.size);pushViewers(r)};
 io.on('connection',sock=>{
   const uid=sock.request.session?.uid;const user=uid&&getUser(uid);if(!user){sock.emit('err','Please log in');return sock.disconnect()}
   online.set(uid,(online.get(uid)||0)+1);sock.join('u'+uid);sock.emit('unread',unreadTotal(uid));let hosting=null,watching=null;const dmOk=bucket(+process.env.DM_RATE||15,10e3),heartOk=bucket(30,10e3);const chatOk=bucket(+process.env.CHAT_RATE||10,10e3),giftOk=bucket(+process.env.GIFT_RATE||20,10e3),sigOk=bucket(600,10e3);
-  const name=()=>getUser(uid).display_name||user.username;
+  const name=()=>getUser(uid).display_name||user.username;gaps.socket(sock,uid);
   sock.on('golive',({title,tags}={},cb)=>{if(typeof cb!=='function')cb=()=>{};title=typeof title==='string'?title.trim():'';tags=typeof tags==='string'?tags.trim().slice(0,80):'';if(hosting)endRoom(hosting);
     const id=db.prepare('INSERT INTO streams(user_id,title,tags) VALUES(?,?,?)').run(uid,String(title||'').slice(0,80),tags).lastInsertRowid;
-    hosting={id,uid,title:String(title||'Live now').slice(0,80),tags,host:sock.id,viewers:new Set(),vu:new Map(),guests:new Map(),invites:new Set(),muted:new Set(db.prepare("SELECT user_id FROM room_bans WHERE host=? AND kind='mute'").all(uid).map(x=>x.user_id)),banned:new Set(db.prepare("SELECT user_id FROM room_bans WHERE host=? AND kind='kick'").all(uid).map(x=>x.user_id)),uniq:new Set(),ghist:new Map(),gmute:new Map(),hearts:0,peak:0,started:Date.now(),newFans:0,d0:received(uid)};
-    for(const f of db.prepare('SELECT follower FROM follows WHERE followee=?').all(uid))notify(f.follower,'live',uid,'is live now: '+hosting.title,'#/live/view/'+id);rooms.set(id,hosting);sock.join('s'+id);io.emit('streams');cb?.({id})});
+    hosting={id,uid,title:String(title||'').slice(0,80),tags,host:sock.id,viewers:new Set(),vu:new Map(),guests:new Map(),invites:new Set(),muted:new Set(db.prepare("SELECT user_id FROM room_bans WHERE host=? AND kind='mute'").all(uid).map(x=>x.user_id)),banned:new Set(db.prepare("SELECT user_id FROM room_bans WHERE host=? AND kind='kick'").all(uid).map(x=>x.user_id)),uniq:new Set(),ghist:new Map(),gmute:new Map(),hearts:0,peak:0,started:Date.now(),newFans:0,d0:received(uid)};
+    for(const f of db.prepare('SELECT follower FROM follows WHERE followee=?').all(uid))notify(f.follower,'live',uid,'is live now'+(hosting.title?': '+hosting.title:''),'#/live/view/'+id);rooms.set(id,hosting);sock.join('s'+id);io.emit('streams');cb?.({id})});
   sock.on('endlive',(x,cb)=>{const s=endRoom(hosting);hosting=null;if(typeof cb==='function')cb(s||{});else if(typeof x==='function')x(s||{})});
   sock.on('join',({id}={},cb)=>{if(typeof cb!=='function')cb=()=>{};const r=rooms.get(+id);if(!r)return cb?.({error:'Stream ended'});
     if(isBlocked(uid,r.uid))return cb({error:'Stream unavailable'});if(r.banned.has(uid))return cb({error:'You were removed from this stream'});
     if(watching&&watching!==r){if(watching.guests.has(sock.id))endGuest(watching,sock.id);sock.leave('s'+watching.id);dropViewer(watching,sock.id)}
-    const fresh=!r.viewers.has(sock.id);watching=r;r.uniq.add(uid);r.viewers.add(sock.id);r.vu.set(sock.id,uid);for(const g of r.guests.keys())if(g!==sock.id)io.to(g).emit('guest-peer',{sid:sock.id});r.peak=Math.max(r.peak||0,r.viewers.size);sock.join('s'+r.id);io.to(r.host).emit('viewer',{sid:sock.id});if(r.vs){const o=r.vs.a===r?r.vs.b:r.vs.a;io.to(o.host).emit('vs-peers',{sids:[sock.id]})}
+    const fresh=!r.viewers.has(sock.id);if(fresh&&r.uid!==uid)gaps.track(uid,'watch');watching=r;r.uniq.add(uid);r.viewers.add(sock.id);r.vu.set(sock.id,uid);for(const g of r.guests.keys())if(g!==sock.id)io.to(g).emit('guest-peer',{sid:sock.id});r.peak=Math.max(r.peak||0,r.viewers.size);sock.join('s'+r.id);io.to(r.host).emit('viewer',{sid:sock.id});if(r.vs){const o=r.vs.a===r?r.vs.b:r.vs.a;io.to(o.host).emit('vs-peers',{sids:[sock.id]})}
     io.to('s'+r.id).emit('count',r.viewers.size);io.to('s'+r.id).emit('stats',roomStats(r));if(fresh)io.to('s'+r.id).emit('joined',{sid:sock.id,user:pub(getUser(uid))});pushViewers(r);
     cb?.({ok:1,guests:guestList(r),viewers:viewerList(r),muted:r.muted.has(uid),mod:isBouncer(r.uid,uid),id:r.id,title:r.title,tags:r.tags,user:pub(getUser(r.uid)),stats:roomStats(r),top:topGifters(r.id,r.uid),
-      following:!!db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(uid,r.uid),xp:levelOf(getUser(uid).xp||0),vs:r.vs&&r.vs.phase!=='done'?vsState(r.vs):null,ng:!!r.ng,nd:!!r.nd,hand:!!r.nd?.hands.has(sock.id)})});
+      following:!!db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(uid,r.uid),xp:levelOf(getUser(uid).xp||0),vs:r.vs&&r.vs.phase!=='done'?vsState(r.vs):null,ng:!!r.ng,nd:!!r.nd,hand:!!r.nd?.hands.has(sock.id),seats:seats(r),host_rank:rankIdx(received(r.uid))})});
   sock.on('leave',()=>{if(watching){if(watching.guests.has(sock.id))endGuest(watching,sock.id);sock.leave('s'+watching.id);dropViewer(watching,sock.id);watching=null}});
   sock.on('signal',({to,data}={})=>{if(!sigOk()||typeof to!=='string')return; // relay offers/answers/ICE only between host and its viewers
     if(data?.v){const r=hosting||watching;const b=r?.vs;if(!b||b.phase==='done')return;const o=b.a===r?b.b:b.a; // VS: opponent host <-> me (host or viewer)
@@ -497,16 +523,16 @@ io.on('connection',sock=>{
   const addGuest=(r,sid,gu)=>{r.guests.set(sid,gu);r.ghist.set(gu,true);r.gmute.delete(sid);r.invites.delete(sid);r.reqs?.delete(sid);io.to(sid).emit('guest-ok',{peers:[r.host,...[...r.viewers].filter(v=>v!==sid)],guests:guestList(r)});
     io.to('s'+r.id).emit('guest',{sid,user:pub(getUser(gu))});pushViewers(r);io.emit('streams')};
   const isMod=r=>r&&(r.uid===uid||!!db.prepare('SELECT 1 FROM bouncers WHERE streamer=? AND user_id=?').get(r.uid,uid));
-  sock.on('guest-req',()=>{const r=watching;if(!r)return sock.emit('err','Not watching');if(r.cfg?.noReq)return sock.emit('err','The host turned off guest requests');if(r.vs)return sock.emit('err','Guest seats are closed during a VS battle');if(r.guests.has(sock.id))return;if(r.guests.size>=MAX_GUESTS)return sock.emit('err','The guest seats are full');
+  sock.on('guest-req',()=>{const r=watching;if(!r)return sock.emit('err','Not watching');r.seats=seatsFor(r.uid);if(r.cfg?.noReq)return sock.emit('err','The host turned off guest requests');if(r.vs)return sock.emit('err','Guest seats are closed during a VS battle');if(r.guests.has(sock.id))return;if(r.guests.size>=seats(r))return sock.emit('err','The guest seats are full');
     r.reqs=r.reqs||new Map();if(r.reqs.has(sock.id))return;r.reqs.set(sock.id,uid);io.to(r.host).emit('guest-req',{sid:sock.id,user:pub(getUser(uid))});sock.emit('guest-pending')});
   sock.on('guest-cancel',()=>{const r=watching;if(r?.reqs?.delete(sock.id))io.to(r.host).emit('guest-cancel',{sid:sock.id});if(r)endGuest(r,sock.id)});
   sock.on('guest-answer',({sid,accept}={})=>{const r=hosting;if(!r||typeof sid!=='string'||!r.reqs?.has(sid))return;const gu=r.reqs.get(sid);r.reqs.delete(sid);
-    if(!accept||r.vs||r.guests.size>=MAX_GUESTS||!r.viewers.has(sid))return io.to(sid).emit('guest-no');addGuest(r,sid,gu)});
+    if(!accept||r.vs||r.guests.size>=seats(r)||!r.viewers.has(sid))return io.to(sid).emit('guest-no');addGuest(r,sid,gu)});
   // host invites a viewer to join on camera (Tagged "Invite to join")
-  sock.on('guest-invite',({sid}={})=>{const r=hosting;if(!r||typeof sid!=='string'||!r.viewers.has(sid)||r.guests.has(sid))return;if(r.vs)return sock.emit('err','Guest seats are closed during a VS battle');if(r.guests.size>=MAX_GUESTS)return sock.emit('err','The guest seats are full');
+  sock.on('guest-invite',({sid}={})=>{const r=hosting;if(!r||typeof sid!=='string'||!r.viewers.has(sid)||r.guests.has(sid))return;if(r.vs)return sock.emit('err','Guest seats are closed during a VS battle');if(r.guests.size>=seats(r))return sock.emit('err','The guest seats are full');
     r.invites.add(sid);io.to(sid).emit('guest-invite',{user:pub(getUser(r.uid))})});
   sock.on('guest-invite-answer',({accept}={})=>{const r=watching;if(!r||!r.invites.has(sock.id))return;r.invites.delete(sock.id);
-    if(!accept||r.vs||r.guests.size>=MAX_GUESTS)return io.to(r.host).emit('guest-invite-no',{sid:sock.id,user:pub(getUser(uid))});addGuest(r,sock.id,uid)});
+    if(!accept||r.vs||r.guests.size>=seats(r))return io.to(r.host).emit('guest-invite-no',{sid:sock.id,user:pub(getUser(uid))});addGuest(r,sock.id,uid)});
   sock.on('guest-end',({sid}={})=>{const r=hosting||watching;if(!r)return;if(hosting){if(typeof sid==='string')endGuest(r,sid);else for(const g of [...r.guests.keys()])endGuest(r,g)}else endGuest(r,sock.id)});
   sock.on('guest-mic',({sid,muted}={})=>{const r=hosting||watching;if(!r)return;const me_=!hosting;const target=me_?sock.id:sid;if(typeof target!=='string'||!r.guests.has(target))return;
     const m=gm(r,target);if(me_){if(!muted&&m.host)return sock.emit('err','The host muted your mic');m.self=!!muted}else m.host=!!muted;r.gmute.set(target,m);io.to('s'+r.id).emit('guest-mic',{sid:target,mic:m})});
@@ -524,6 +550,11 @@ io.on('connection',sock=>{
     if(o.guests.size)return cb({error:'That host has guests right now'});if(vsBusy(o))return cb({error:'That host is already in a battle'});
     const id=crypto.randomBytes(8).toString('hex');const inv={id,from:r,to:o,timer:setTimeout(()=>{if(vsInvites.delete(id)){io.to(r.host).emit('vs-declined',{id,timeout:true,user:pub(getUser(o.uid))});io.to(o.host).emit('vs-invite-gone',{id})}},VS_INVITE_SECS*1000)};
     vsInvites.set(id,inv);io.to(o.host).emit('vs-invite',{id,user:pub(getUser(uid)),secs:VS_INVITE_SECS});cb({ok:1,id,secs:VS_INVITE_SECS})});
+  // Rematch: the same two hosts, right after a battle (sent as a normal invite the other host accepts or declines)
+  sock.on('vs-rematch',(x,cb)=>{if(typeof cb!=='function')cb=()=>{};if(!vsOk())return cb({error:'Slow down'});const r=hosting;const o=r?.lastOpp;if(!r||!o||!rooms.has(o.id)||o.uid===uid)return cb({error:'Your last opponent is no longer live'});
+    const why=vsBlockReason(r);if(why)return cb({error:why});if(vsBusy(o)||o.guests.size)return cb({error:'That host is busy right now'});if(isBlocked(uid,o.uid))return cb({error:'Not available'});
+    const id=crypto.randomBytes(8).toString('hex');const inv={id,from:r,to:o,timer:setTimeout(()=>{if(vsInvites.delete(id)){io.to(r.host).emit('vs-declined',{id,timeout:true,user:pub(getUser(o.uid))});io.to(o.host).emit('vs-invite-gone',{id})}},VS_INVITE_SECS*1000)};
+    vsInvites.set(id,inv);io.to(o.host).emit('vs-invite',{id,user:pub(getUser(uid)),secs:VS_INVITE_SECS,rematch:true});cb({ok:1,id,secs:VS_INVITE_SECS,user:pub(getUser(o.uid))})});
   sock.on('vs-answer',({id,accept}={},cb)=>{if(typeof cb!=='function')cb=()=>{};const inv=typeof id==='string'&&vsInvites.get(id);if(!inv||inv.to!==hosting)return cb({error:'Invite expired'});
     clearTimeout(inv.timer);vsInvites.delete(id);if(!accept){io.to(inv.from.host).emit('vs-declined',{id,user:pub(getUser(uid))});return cb({ok:1})}
     const why=vsBlockReason(inv.to)||vsBlockReason(inv.from);if(why){io.to(inv.from.host).emit('vs-declined',{id,user:pub(getUser(uid))});return cb({error:why})}
@@ -538,19 +569,20 @@ io.on('connection',sock=>{
     if(r.cfg&&uid!==r.uid){const c=r.cfg;if(c.comment==='followers'&&!db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(uid,r.uid))return sock.emit('err','Only followers can comment in this stream');
       if(c.slow>0){r.lastMsg=r.lastMsg||new Map();const t=r.lastMsg.get(uid)||0;if(Date.now()-t<c.slow*1000)return sock.emit('err',`Slow mode: wait ${c.slow}s between messages`);r.lastMsg.set(uid,Date.now())}
       if(c.words?.length&&c.words.some(w=>text.toLowerCase().includes(w)))return sock.emit('err','Your message contains a word the host blocked')}
-    db.prepare('INSERT INTO chat(stream_id,user_id,text) VALUES(?,?,?)').run(r.id,uid,text);const msg={from:name(),user:user.username,text};
+    db.prepare('INSERT INTO chat(stream_id,user_id,text) VALUES(?,?,?)').run(r.id,uid,text);const msg={from:name(),user:user.username,text,fan:fanRank(r,uid)};
     for(const sid of [r.host,...r.viewers]){const s2=io.sockets.sockets.get(sid);const ru=s2?.request.session?.uid;if(s2&&!(ru&&ru!==uid&&isBlocked(ru,uid)))s2.emit('chat',msg)}});
   sock.on('gift',({k,to}={},cb)=>{if(typeof cb!=='function')cb=()=>{};if(!giftOk())return cb({error:'Slow down'});if(!Number.isInteger(k))return cb({error:'Bad gift'});const r=watching;const g=GIFTS[k];if(!r)return cb?.({error:'Not watching'});
-    const lvl=levelOf(getUser(uid).xp||0).n;if(!g||!(g[2]>0)||(g[5]!=null&&!(typeof g[5]==='number'&&lvl>=g[5])&&!(g[5]==='VIP'&&isPremium(getUser(uid)))))return cb?.({error:'Gift locked'});if(r.uid===uid)return cb?.({error:"Can't gift yourself"});
+    if(!g||!(g[2]>0)||!giftLockOk(g,getUser(uid),r.uid))return cb?.({error:'Gift locked'});if(r.uid===uid)return cb?.({error:"Can't gift yourself"});
     const c=g[2],d=giftDiamonds(c);let rid=r.uid,rr=r;const vb=r.vs&&r.vs.phase==='battle'?r.vs:null;const opp=r.vs&&r.vs.phase!=='done'?(r.vs.a===r?r.vs.b:r.vs.a):null;
     if(typeof to==='string'&&to){const gu=[...r.guests.values()].find(x=>getUser(x)?.username===to);if(gu)rid=gu;else if(opp&&getUser(opp.uid)?.username===to){rid=opp.uid;rr=opp}}if(rid===uid)return cb?.({error:"Can't gift yourself"});
     try{db.transaction(()=>{sendGift(uid,rid,c,d);
       db.prepare('INSERT INTO gifts_sent(stream_id,sender,receiver,gift_key,coins,diamonds) VALUES(?,?,?,?,?,?)').run(rr.id,uid,rid,g[0],c,d);
-      db.prepare('UPDATE users SET xp=xp+? WHERE id=?').run(c,uid);if(rid===rr.uid)db.prepare('UPDATE streams SET diamonds=diamonds+? WHERE id=?').run(d,rr.id)})()}
+      db.prepare('UPDATE users SET xp=xp+? WHERE id=?').run(gaps.xpFor(getUser(uid),c),uid);if(rid===rr.uid)db.prepare('UPDATE streams SET diamonds=diamonds+? WHERE id=?').run(d,rr.id)})()}
     catch(e){return cb?.({error:e.message==='NOCOINS'?'NOCOINS':'Gift failed',coins:getUser(uid).coins})}
     const gev={k,from:name(),user:user.username,sender:(({username,display_name,avatar})=>({username,display_name,avatar}))(pub(getUser(uid))),guest:rid!==rr.uid,coins:c,diamonds:d,to:getUser(rid).display_name||getUser(rid).username,total:getUser(rr.uid).diamonds};
     io.to('s'+r.id).emit('gift',gev);if(rr!==r)io.to('s'+rr.id).emit('gift',gev);
     if(vb&&rid===rr.uid&&(rr===vb.a||rr===vb.b)){const i=vsSide(vb,rr);vb.scores[i]+=c;vb.gifters[i].set(uid,(vb.gifters[i].get(uid)||0)+c);vsEmit(vb,'vs-score',vsState(vb))}
+    gaps.track(uid,'gift');gaps.push(rid,'gift',uid,`sent you ${g[1]} 🎁 (+${d} 💎)`,'#/live/view/'+rr.id);
     pushBalance(uid);pushBalance(rid);for(const x of rr===r?[r]:[r,rr]){io.to('s'+x.id).emit('top',topGifters(x.id,x.uid));io.to('s'+x.id).emit('stats',roomStats(x))}pushViewers(r);cb?.({ok:1,xp:levelOf(getUser(uid).xp)})});
   // ---- Host stream settings, Send Blast, NextGuest (timed open guest box), NextDate (raise hand → host picks) ----
   sock.on('room-cfg',(c={},cb)=>{if(typeof cb!=='function')cb=()=>{};const r=hosting;if(!r)return cb({error:'Not live'});
@@ -559,10 +591,10 @@ io.on('connection',sock=>{
     r.title=title;db.prepare('UPDATE streams SET title=? WHERE id=?').run(title,r.id);io.to('s'+r.id).emit('title',{title});io.emit('streams');cb({ok:1})});
   sock.on('blast',(x,cb)=>{if(typeof cb!=='function')cb=()=>{};const r=hosting;if(!r)return cb({error:'Go live first'});const last=blasts.get(uid)||0,left=BLAST_COOLDOWN-(Date.now()-last);
     if(left>0)return cb({error:`You can send another blast in ${Math.ceil(left/60e3)} min`});blasts.set(uid,Date.now());let n=0;
-    for(const f of db.prepare('SELECT follower FROM follows WHERE followee=?').all(uid)){notify(f.follower,'blast',uid,'🔔 '+name()+' is live: '+r.title,'#/live/view/'+r.id);n++}cb({ok:1,sent:n})});
+    for(const f of db.prepare('SELECT follower FROM follows WHERE followee=?').all(uid)){notify(f.follower,'blast',uid,'🔔 '+name()+' is live'+(r.title?': '+r.title:''),'#/live/view/'+r.id);n++}cb({ok:1,sent:n})});
   const ngEmit=r=>io.to('s'+r.id).emit('ng',r.ng?{on:true,queue:r.ng.queue.map(q=>({sid:q.sid,user:pub(getUser(q.uid))})),cur:r.ng.cur?{sid:r.ng.cur.sid,user:pub(getUser(r.ng.cur.uid)),until:r.ng.cur.until}:null,secs:NG_SECS}:{on:false});
   const ngAdvance=r=>{const g=r.ng;if(!g)return;clearTimeout(g.timer);if(g.cur){const c=g.cur;g.cur=null;endGuest(r,c.sid)}
-    while(g.queue.length){const q=g.queue.shift();if(!r.viewers.has(q.sid)||r.guests.size>=MAX_GUESTS)continue;g.cur={...q,until:Date.now()+NG_SECS*1000};addGuest(r,q.sid,q.uid);g.timer=setTimeout(()=>{if(r.ng===g)ngAdvance(r)},NG_SECS*1000);break}ngEmit(r)};
+    while(g.queue.length){const q=g.queue.shift();if(!r.viewers.has(q.sid)||r.guests.size>=seats(r))continue;g.cur={...q,until:Date.now()+NG_SECS*1000};addGuest(r,q.sid,q.uid);g.timer=setTimeout(()=>{if(r.ng===g)ngAdvance(r)},NG_SECS*1000);break}ngEmit(r)};
   sock.on('ng-start',(x,cb)=>{if(typeof cb!=='function')cb=()=>{};const r=hosting;if(!r)return cb({error:'Not live'});if(r.vs)return cb({error:'Not during a VS battle'});if(r.nd)return cb({error:'End NextDate first'});r.ng={queue:[],cur:null};ngEmit(r);cb({ok:1,secs:NG_SECS})});
   sock.on('ng-next',(x,cb)=>{if(typeof cb!=='function')cb=()=>{};const r=hosting;if(!r?.ng)return cb({error:'NextGuest is off'});ngAdvance(r);cb({ok:1})});
   sock.on('ng-end',(x,cb)=>{if(typeof cb!=='function')cb=()=>{};const r=hosting;if(!r?.ng)return cb({ok:1});clearTimeout(r.ng.timer);const c=r.ng.cur;r.ng=null;if(c)endGuest(r,c.sid);ngEmit(r);cb({ok:1})});
@@ -582,17 +614,13 @@ io.on('connection',sock=>{
     const u=pub(getUser(uid));io.to('s'+r.id).emit('shout',{text,from:name(),user:user.username,sender:{username:u.username,display_name:u.display_name,avatar:u.avatar},secs:SHOUT_SECS});
     for(const f of db.prepare('SELECT follower FROM follows WHERE followee=?').all(r.uid))notify(f.follower,'shout',uid,'📣 '+name()+': '+text,'#/live/view/'+r.id);
     pushBalance(uid);cb({ok:1,coins:getUser(uid).coins,price:SHOUT_COINS})});
-  sock.on('heart',()=>{const r=watching||hosting;if(!r||!heartOk())return;r.hearts=(r.hearts||0)+1;db.prepare('UPDATE streams SET hearts=? WHERE id=?').run(r.hearts,r.id);io.to('s'+r.id).emit('heart',{n:r.hearts,from:name()})});
+  sock.on('heart',()=>{const r=watching||hosting;if(!r||!heartOk())return;if(r.uid!==uid)gaps.track(uid,'heart');r.hearts=(r.hearts||0)+1;db.prepare('UPDATE streams SET hearts=? WHERE id=?').run(r.hearts,r.id);io.to('s'+r.id).emit('heart',{n:r.hearts,from:name()})});
   sock.on('kick',({username}={})=>{const r=hosting||watching;if(!r||typeof username!=='string')return;const isMod=r.uid===uid||!!db.prepare('SELECT 1 FROM bouncers WHERE streamer=? AND user_id=?').get(r.uid,uid);if(!isMod)return;
     const t=db.prepare('SELECT id FROM users WHERE username=?').get(username);if(!t||t.id===r.uid)return;r.banned.add(t.id);db.prepare("INSERT OR IGNORE INTO room_bans(host,user_id,kind) VALUES(?,?,'kick')").run(r.uid,t.id);for(const sid of [...r.viewers]){const s2=io.sockets.sockets.get(sid);if(s2?.request.session?.uid===t.id){endGuest(r,sid);s2.leave('s'+r.id);dropViewer(r,sid);s2.emit('kicked')}}});
   sock.on('dm',({to,text}={},cb)=>{if(typeof cb!=='function')cb=()=>{};if(!dmOk())return cb({error:'Slow down'});
     if(typeof to!=='string'||typeof text!=='string')return cb({error:'Invalid'});text=text.trim().slice(0,1000);if(!text)return cb({error:'Empty'});
-    const o=db.prepare('SELECT * FROM users WHERE username=?').get(to);if(!o||o.id===uid)return cb({error:'Unknown user'});
-    if(isBlocked(uid,o.id))return cb({error:"You can't message this person"});const cp=settingsOf(o).contact;
-    if(cp==='friends'&&friendState(uid,o.id)!=='friends'&&!isMatch(uid,o.id)&&!db.prepare('SELECT 1 FROM dms WHERE sender=? AND receiver=?').get(o.id,uid))return cb({error:'This person only accepts messages from friends'});
-    const id=db.prepare('INSERT INTO dms(sender,receiver,text) VALUES(?,?,?)').run(uid,o.id,text).lastInsertRowid;const m=db.prepare('SELECT created_at FROM dms WHERE id=?').get(id);
-    const me_=getUser(uid);io.to('u'+o.id).emit('dm',{id,from:me_.username,user:pub(me_),text,at:m.created_at,mine:false});io.to('u'+o.id).emit('unread',unreadTotal(o.id));
-    sock.to('u'+uid).emit('dm',{id,from:to,with:to,text,at:m.created_at,mine:true});cb({ok:1,id,at:m.created_at})});
+    const o=db.prepare('SELECT * FROM users WHERE username=?').get(to);const why=dmBlockReason(uid,o);if(why)return cb({error:why});
+    const d=deliverDm(uid,o,{text},sock);cb({ok:1,id:d.id,at:d.at})});
   sock.on('disconnect',()=>{const n=(online.get(uid)||1)-1;if(n)online.set(uid,n);else online.delete(uid);if(hosting)endRoom(hosting);if(watching){endGuest(watching,sock.id);dropViewer(watching,sock.id)}});
 });
 const stop=()=>{io.close();server.close(()=>{db.close();process.exit(0)});setTimeout(()=>process.exit(0),5e3)};process.on('SIGTERM',stop);process.on('SIGINT',stop);
