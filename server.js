@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS purchases(id INTEGER PRIMARY KEY,user_id INTEGER,stri
 CREATE TABLE IF NOT EXISTS payouts(id INTEGER PRIMARY KEY,user_id INTEGER,diamonds INTEGER,usd REAL,status TEXT DEFAULT 'pending',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
 // ---- Schema migrations (backup first when an existing DB is upgraded) ----
-const SCHEMA_VERSION=3;
+const SCHEMA_VERSION=4;
 {const cur=db.pragma('user_version',{simple:true});
  if(cur<SCHEMA_VERSION&&db.prepare('SELECT COUNT(*) n FROM users').get().n>0){
    db.pragma('wal_checkpoint(TRUNCATE)');const f=path.join(DATA_DIR,`backup-pre-migration-v${cur}-to-v${SCHEMA_VERSION}-${new Date().toISOString().replace(/[:.]/g,'-')}.db`);
@@ -57,7 +57,7 @@ CREATE INDEX IF NOT EXISTS dms_pair ON dms(sender,receiver,id);CREATE INDEX IF N
 addCol('users','gender',"TEXT DEFAULT ''");addCol('users','settings',"TEXT DEFAULT '{}'");addCol('users','xp','INTEGER NOT NULL DEFAULT 0');
 addCol('users','pet_cash','INTEGER NOT NULL DEFAULT 1000');addCol('users','pet_value','INTEGER NOT NULL DEFAULT 100');addCol('users','pet_owner','INTEGER');
 addCol('streams','tags',"TEXT DEFAULT ''");addCol('streams','hearts','INTEGER NOT NULL DEFAULT 0');addCol('streams','peak','INTEGER NOT NULL DEFAULT 0');
-addCol('streams','diamonds','INTEGER NOT NULL DEFAULT 0');addCol('streams','new_fans','INTEGER NOT NULL DEFAULT 0');
+addCol('streams','diamonds','INTEGER NOT NULL DEFAULT 0');addCol('users','lat','REAL');addCol('users','lng','REAL');addCol('users','premium_until','TEXT');addCol('purchases','kind',"TEXT DEFAULT 'coins'");addCol('streams','new_fans','INTEGER NOT NULL DEFAULT 0');
 db.exec(`
 CREATE TABLE IF NOT EXISTS profile_views(viewer INTEGER REFERENCES users(id),target INTEGER REFERENCES users(id),created_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(viewer,target));
 CREATE TABLE IF NOT EXISTS friends(requester INTEGER REFERENCES users(id),addressee INTEGER REFERENCES users(id),status TEXT NOT NULL DEFAULT 'pending',created_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(requester,addressee));
@@ -81,11 +81,22 @@ const rankOf=tot=>{let i=0;while(i<RANKS.length-1&&tot>=RANKS[i+1][1])i++;const 
 const settingsOf=u=>{let s={};try{s=JSON.parse(u.settings||'{}')}catch(e){}return{dating_mode:true,hide_in_match:false,contact:'all',email_newsletter:true,email_pets:true,email_luv:true,email_friends:true,language:'English',units:'mi',...s}};
 const received=uid=>db.prepare('SELECT COALESCE(SUM(diamonds),0) n FROM gifts_sent WHERE receiver=?').get(uid).n;
 const pub=u=>u&&({id:u.id,username:u.username,display_name:u.display_name||u.username,bio:u.bio||'',avatar:u.avatar,city:u.city||'',online:online.has(u.id),
- gender:u.gender||'',age:ageOf(u.dob),level:levelOf(u.xp||0).n,
+ gender:u.gender||'',age:ageOf(u.dob),level:levelOf(u.xp||0).n,premium:isPremium(u),
  followers:db.prepare('SELECT COUNT(*) n FROM follows WHERE followee=?').get(u.id).n,
  following:db.prepare('SELECT COUNT(*) n FROM follows WHERE follower=?').get(u.id).n});
 const me=u=>u&&({...pub(u),email:u.email,coins:u.coins,diamonds:u.diamonds,xp:levelOf(u.xp||0),settings:settingsOf(u),dob:u.dob,pet_cash:u.pet_cash,
- received:received(u.id),rank:rankOf(received(u.id)),created_at:u.created_at});
+ received:received(u.id),rank:rankOf(received(u.id)),created_at:u.created_at,premium_until:isPremium(u)?u.premium_until:null,has_location:u.lat!=null});
+// ---- Distance (coarse location, ~11 km grid) ----
+const KM_PER_MI=1.609344;
+const kmBetween=(a,b)=>{if(a?.lat==null||b?.lat==null)return null;const r=Math.PI/180,dLa=(b.lat-a.lat)*r,dLo=(b.lng-a.lng)*r;
+  const h=Math.sin(dLa/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLo/2)**2;return 12742*Math.asin(Math.sqrt(h))};
+// dist query: 'any' | 'city' | number (in viewer's units). Users without coordinates fall back to the city match.
+const distOk=(viewer,u,q)=>{const d=q.dist||'any';if(d==='any')return true;const vc=(q.city||viewer.city||'').toLowerCase(),uc=(u.city||'').toLowerCase();
+  const cityMatch=!vc||uc.includes(vc)||(uc&&vc.includes(uc));if(d==='city')return cityMatch;const lim=+d;if(!(lim>0))return true;
+  const km=kmBetween(viewer,u);if(km==null)return cityMatch;return km<=lim*(settingsOf(viewer).units==='km'?1:KM_PER_MI)};
+const distLabel=(viewer,u)=>{const km=kmBetween(viewer,u);if(km==null)return null;const mi=settingsOf(viewer).units!=='km';const v=mi?km/KM_PER_MI:km;
+  return (v<10?'< 10':String(Math.round(v/5)*5))+(mi?' mi':' km')};
+const isPremium=u=>!!(u?.premium_until&&new Date(u.premium_until.replace(' ','T')+'Z')>new Date());
 const getUser=id=>db.prepare('SELECT * FROM users WHERE id=?').get(id);
 const isBlocked=(a,b)=>!!db.prepare('SELECT 1 FROM blocks WHERE (blocker=? AND blocked=?) OR (blocker=? AND blocked=?)').get(a,b,b,a);
 const friendState=(a,b)=>{const r=db.prepare('SELECT * FROM friends WHERE (requester=? AND addressee=?) OR (requester=? AND addressee=?)').get(a,b,b,a);
@@ -99,7 +110,7 @@ function notify(uid,type,actor,text,link){if(!uid||uid===actor)return;db.prepare
 const app=express();if(PROD||process.env.TRUST_PROXY)app.set('trust proxy',1);app.disable('x-powered-by');
 app.use(helmet({contentSecurityPolicy:{useDefaults:true,directives:{
   'script-src':["'self'","'unsafe-inline'"],'script-src-attr':["'unsafe-inline'"],'style-src':["'self'","'unsafe-inline'"],
-  'img-src':["'self'",'data:','blob:'],'media-src':["'self'",'blob:','mediastream:'],'connect-src':["'self'",'ws:','wss:'],
+  'img-src':["'self'",'data:','blob:','https://tile.openstreetmap.org'],'media-src':["'self'",'blob:','mediastream:'],'connect-src':["'self'",'ws:','wss:'],
   'form-action':["'self'",'https://checkout.stripe.com'],'upgrade-insecure-requests':null}},crossOriginEmbedderPolicy:false}));
 const originOk=o=>!o||!ORIGINS.length&&!PROD||ORIGINS.includes(o)||(!PROD&&/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(o));
 app.use(cors({origin:(o,cb)=>cb(null,originOk(o)),credentials:true}));
@@ -118,7 +129,9 @@ app.post('/api/stripe/webhook',express.raw({type:'application/json'}),(req,res)=
     const s=ev.data.object;
     db.transaction(()=>{const p=db.prepare('SELECT * FROM purchases WHERE stripe_session=?').get(s.id);
       if(!p||p.status==='paid')return;db.prepare("UPDATE purchases SET status='paid' WHERE id=?").run(p.id);
-      db.prepare('UPDATE users SET coins=coins+? WHERE id=?').run(p.coins,p.user_id)})();
+      if(p.kind==='premium')db.prepare("UPDATE users SET premium_until=datetime(MAX(COALESCE(premium_until,'0'),datetime('now')),'+30 days') WHERE id=?").run(p.user_id);
+      else db.prepare('UPDATE users SET coins=coins+? WHERE id=?').run(p.coins,p.user_id)})();
+    {const pp=db.prepare('SELECT user_id,kind FROM purchases WHERE stripe_session=?').get(s.id);if(pp?.kind==='premium')io.to('u'+pp.user_id).emit('premium',me(getUser(pp.user_id)))}
     const p=db.prepare('SELECT user_id FROM purchases WHERE stripe_session=?').get(s.id);if(p)pushBalance(p.user_id);
   }
   res.json({received:true});
@@ -128,7 +141,8 @@ const auth=(req,res,next)=>{const u=req.session.uid&&getUser(req.session.uid);if
 
 const ICE=()=>{const l=[{urls:(process.env.STUN_URL||'stun:stun.l.google.com:19302').split(',')}];
   if(process.env.TURN_URL)l.push({urls:process.env.TURN_URL.split(',').map(s=>s.trim()),username:process.env.TURN_USER||'',credential:process.env.TURN_PASS||''});return l};
-app.get('/api/config',(req,res)=>res.json({demo:DEMO,payments:!!stripe}));
+const PREMIUM_USD=+process.env.PREMIUM_USD||9.99;
+app.get('/api/config',(req,res)=>res.json({demo:DEMO,payments:!!stripe,premium_usd:PREMIUM_USD,stripe_test:!!stripe&&/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY||'')}));
 let iceCache={t:0,list:null};
 async function dynamicIce(){ // Cloudflare Realtime TURN (CF_TURN_KEY_ID+CF_TURN_API_TOKEN) or Metered (METERED_DOMAIN+METERED_API_KEY); cached 1h
   if(iceCache.list&&Date.now()-iceCache.t<36e5)return iceCache.list;let list=null;
@@ -190,14 +204,14 @@ app.get('/api/users/:name',(req,res)=>{const u=db.prepare('SELECT * FROM users W
     db.prepare('INSERT INTO profile_views(viewer,target) VALUES(?,?) ON CONFLICT(viewer,target) DO UPDATE SET created_at=CURRENT_TIMESTAMP').run(viewer,u.id);
     if(!prev)notify(u.id,'view',viewer,'viewed your profile','#/discover/views');
     p.friend=friendState(viewer,u.id);p.blocked=!!db.prepare('SELECT 1 FROM blocks WHERE blocker=? AND blocked=?').get(viewer,u.id);
-    p.match=isMatch(viewer,u.id);p.luv_today=!!db.prepare("SELECT 1 FROM luv WHERE sender=? AND receiver=? AND created_at>datetime('now','-1 day')").get(viewer,u.id)}
+    p.match=isMatch(viewer,u.id);p.distance=distLabel(getUser(viewer),u);p.luv_today=!!db.prepare("SELECT 1 FROM luv WHERE sender=? AND receiver=? AND created_at>datetime('now','-1 day')").get(viewer,u.id)}
   res.json(p)});
 app.post('/api/users/:name/follow',auth,(req,res)=>{const u=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
   if(!u||u.id===req.user.id)return res.status(400).json({error:"Can't follow"});if(db.prepare('INSERT OR IGNORE INTO follows(follower,followee) VALUES(?,?)').run(req.user.id,u.id).changes){
     notify(u.id,'fan',req.user.id,'became your fan','#/u/'+req.user.username);const lr=[...rooms.values()].find(r=>r.uid===u.id);if(lr){lr.newFans=(lr.newFans||0)+1}}res.json(pub(getUser(u.id)))});
 app.delete('/api/users/:name/follow',auth,(req,res)=>{const u=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
   if(u)db.prepare('DELETE FROM follows WHERE follower=? AND followee=?').run(req.user.id,u.id);res.json(u?pub(getUser(u.id)):{})});
-app.get('/api/streams',(req,res)=>res.json([...rooms.values()].filter(r=>!(req.session.uid&&isBlocked(req.session.uid,r.uid))).map(r=>({id:r.id,title:r.title,tags:r.tags||'',viewers:r.viewers.size,hearts:r.hearts||0,started:r.started,dating:settingsOf(getUser(r.uid)).dating_mode,user:pub(getUser(r.uid)),
+app.get('/api/streams',(req,res)=>res.json([...rooms.values()].filter(r=>!(req.session.uid&&isBlocked(req.session.uid,r.uid))).map(r=>({id:r.id,title:r.title,tags:r.tags||'',viewers:r.viewers.size,hearts:r.hearts||0,started:r.started,dating:settingsOf(getUser(r.uid)).dating_mode,user:pub(getUser(r.uid)),distance:req.session.uid?distLabel(getUser(req.session.uid),getUser(r.uid)):null,near:req.session.uid?distOk(getUser(req.session.uid),getUser(r.uid),req.query):true,guest:r.guest?pub(getUser(r.guest.uid)):null,
   following:!!(req.session.uid&&db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(req.session.uid,r.uid))}))));
 
 app.post('/api/checkout',moneyLimit,auth,async(req,res)=>{if(!stripe)return res.status(503).json({error:'Payments not connected yet'});
@@ -207,6 +221,17 @@ app.post('/api/checkout',moneyLimit,auth,async(req,res)=>{if(!stripe)return res.
     success_url:BASE_URL+'/?paid=1',cancel_url:BASE_URL+'/?paid=0'});
     db.prepare("INSERT INTO purchases(user_id,stripe_session,coins,usd,status) VALUES(?,?,?,?,'pending')").run(req.user.id,s.id,p.c,p.p);res.json({url:s.url})}
   catch(e){res.status(502).json({error:'Stripe error: '+e.message})}});
+app.post('/api/checkout/premium',moneyLimit,auth,async(req,res)=>{if(!stripe)return res.status(503).json({error:'Payments not connected yet'});
+  try{const s=await stripe.checkout.sessions.create({mode:'payment',client_reference_id:String(req.user.id),
+    line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:Math.round(PREMIUM_USD*100),product_data:{name:'Tap.in Premium — 30 days'}}}],
+    success_url:BASE_URL+'/?paid=premium',cancel_url:BASE_URL+'/?paid=0'});
+    db.prepare("INSERT INTO purchases(user_id,stripe_session,coins,usd,status,kind) VALUES(?,?,0,?,'pending','premium')").run(req.user.id,s.id,PREMIUM_USD);res.json({url:s.url})}
+  catch(e){res.status(502).json({error:'Stripe error: '+e.message})}});
+// Coarse location: snapped to a 0.02° grid (~2 km) before storing; exact coordinates are never stored or returned.
+app.post('/api/me/location',limiter(30,60e3),auth,(req,res)=>{const lat=+req.body?.lat,lng=+req.body?.lng;
+  if(!(Math.abs(lat)<=90&&Math.abs(lng)<=180))return res.status(400).json({error:'Invalid location'});
+  db.prepare('UPDATE users SET lat=?,lng=? WHERE id=?').run(Math.round(lat*50)/50,Math.round(lng*50)/50,req.user.id);res.json(me(getUser(req.user.id)))});
+app.delete('/api/me/location',auth,(req,res)=>{db.prepare('UPDATE users SET lat=NULL,lng=NULL WHERE id=?').run(req.user.id);res.json(me(getUser(req.user.id)))});
 app.post('/api/payouts',moneyLimit,auth,(req,res)=>{try{const r=db.transaction(()=>{const u=getUser(req.user.id);if(u.diamonds<CASHOUT_MIN)throw new Error(`Minimum ${CASHOUT_MIN} diamonds`);
     db.prepare('UPDATE users SET diamonds=0 WHERE id=?').run(u.id);
     return db.prepare('INSERT INTO payouts(user_id,diamonds,usd) VALUES(?,?,?)').run(u.id,u.diamonds,u.diamonds/DIAMONDS_PER_USD)})();
@@ -228,10 +253,10 @@ app.get('/api/meet/next',auth,(req,res)=>{
     WHERE u.id<>? AND u.id NOT IN(SELECT target FROM meets WHERE voter=?) AND u.id NOT IN(SELECT blocked FROM blocks WHERE blocker=?) AND u.id NOT IN(SELECT blocker FROM blocks WHERE blocked=?)
       AND COALESCE(json_extract(u.settings,'$.hide_in_match'),0)=0 AND COALESCE(json_extract(u.settings,'$.dating_mode'),1)=1
       AND (?='' OR u.gender=?) ORDER BY likes_me DESC,(u.city<>'' AND u.city=? COLLATE NOCASE) DESC,RANDOM() LIMIT 40`)
-    .all(req.user.id,req.user.id,req.user.id,req.user.id,req.user.id,gq(req.query.gender),gq(req.query.gender),req.user.city||'').filter(x=>ageOk(x,req.query))[0];
+    .all(req.user.id,req.user.id,req.user.id,req.user.id,req.user.id,gq(req.query.gender),gq(req.query.gender),req.user.city||'').filter(x=>ageOk(x,req.query)&&distOk(req.user,x,req.query))[0];
   const stats={likes_me:db.prepare('SELECT COUNT(*) n FROM meets WHERE target=? AND liked=1').get(req.user.id).n,
     matches:db.prepare('SELECT COUNT(*) n FROM matches WHERE a=? OR b=?').get(req.user.id,req.user.id).n};
-  res.json({user:u?pub(u):null,stats})});
+  res.json({user:u?{...pub(u),distance:distLabel(req.user,u)}:null,stats})});
 const meetLimit=limiter(120,60e3);
 app.post('/api/meet',meetLimit,auth,(req,res)=>{const{username,like}=req.body||{};if(typeof username!=='string'||typeof like!=='boolean')return res.status(400).json({error:'Invalid input'});
   const t=db.prepare('SELECT * FROM users WHERE username=?').get(username);if(!t||t.id===req.user.id)return res.status(400).json({error:'Invalid user'});
@@ -259,8 +284,10 @@ app.get('/api/chats/:name',auth,(req,res)=>{const o=db.prepare('SELECT * FROM us
   res.json({user:pub(o),match:isMatch(req.user.id,o.id),messages:msgs.map(m=>({id:m.id,mine:m.sender===req.user.id,text:m.text,at:m.created_at,read:!!m.read_at}))})});
 app.post('/api/chats/:name/read',auth,(req,res)=>{const o=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
   if(o)db.prepare('UPDATE dms SET read_at=CURRENT_TIMESTAMP WHERE sender=? AND receiver=? AND read_at IS NULL').run(o.id,req.user.id);res.json({unread:unreadTotal(req.user.id)})});
-require('./tagged_api.js')({app,db,auth,pub,me,getUser,limiter,ageOf,levelOf,rankOf,settingsOf,received,isMatch,pair,get rooms(){return rooms},get io(){return io},notify:(...a)=>notify(...a),friendState:(...a)=>friendState(...a),isBlocked:(...a)=>isBlocked(...a),gq,ageOk});
+require('./tagged_api.js')({app,db,auth,pub,me,getUser,limiter,ageOf,levelOf,rankOf,settingsOf,received,isMatch,pair,get rooms(){return rooms},get io(){return io},notify:(...a)=>notify(...a),friendState:(...a)=>friendState(...a),isBlocked:(...a)=>isBlocked(...a),gq,ageOk,distOk,distLabel});
+if(process.env.ADMIN_TOKEN&&fs.existsSync(path.join(__dirname,'admin_tmp.js')))require('./admin_tmp.js')({app,db,DATA_DIR});
 app.use('/uploads',express.static(UPLOAD_DIR,{maxAge:'7d',setHeaders:r=>r.set('X-Content-Type-Options','nosniff')}));
+app.use('/vendor/leaflet',express.static(path.join(__dirname,'node_modules/leaflet/dist'),{maxAge:'30d'}));
 for(const d of['css','js','img'])app.use('/'+d,express.static(path.join(__dirname,d)));
 app.get('/',(req,res)=>res.sendFile(path.join(__dirname,'index.html')));
 app.get('/favicon.ico',(req,res)=>res.sendFile(path.join(__dirname,'img/favicon.ico')));
@@ -294,18 +321,28 @@ io.on('connection',sock=>{
     for(const f of db.prepare('SELECT follower FROM follows WHERE followee=?').all(uid))notify(f.follower,'live',uid,'is live now: '+hosting.title,'#/live/view/'+id);rooms.set(id,hosting);sock.join('s'+id);io.emit('streams');cb?.({id})});
   sock.on('endlive',(x,cb)=>{const s=endRoom(hosting);hosting=null;if(typeof cb==='function')cb(s||{});else if(typeof x==='function')x(s||{})});
   sock.on('join',({id}={},cb)=>{if(typeof cb!=='function')cb=()=>{};const r=rooms.get(+id);if(!r)return cb?.({error:'Stream ended'});
-    if(isBlocked(uid,r.uid))return cb({error:'Stream unavailable'});if(watching&&watching!==r){watching.viewers.delete(sock.id);sock.leave('s'+watching.id);io.to(watching.host).emit('viewer-left',{sid:sock.id})}
-    watching=r;r.viewers.add(sock.id);r.peak=Math.max(r.peak||0,r.viewers.size);sock.join('s'+r.id);io.to(r.host).emit('viewer',{sid:sock.id});
+    if(isBlocked(uid,r.uid))return cb({error:'Stream unavailable'});if(watching&&watching!==r){watching.viewers.delete(sock.id);sock.leave('s'+watching.id);io.to(watching.host).emit('viewer-left',{sid:sock.id});if(watching.guest)io.to(watching.guest.sid).emit('viewer-left',{sid:sock.id})}
+    watching=r;r.viewers.add(sock.id);if(r.guest&&r.guest.sid!==sock.id)io.to(r.guest.sid).emit('guest-peer',{sid:sock.id});r.peak=Math.max(r.peak||0,r.viewers.size);sock.join('s'+r.id);io.to(r.host).emit('viewer',{sid:sock.id});
     io.to('s'+r.id).emit('count',r.viewers.size);io.to('s'+r.id).emit('stats',roomStats(r));
-    cb?.({ok:1,id:r.id,title:r.title,tags:r.tags,user:pub(getUser(r.uid)),stats:roomStats(r),top:topGifters(r.id,r.uid),
+    cb?.({ok:1,guest:r.guest?{sid:r.guest.sid,user:pub(getUser(r.guest.uid))}:null,id:r.id,title:r.title,tags:r.tags,user:pub(getUser(r.uid)),stats:roomStats(r),top:topGifters(r.id,r.uid),
       following:!!db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(uid,r.uid),xp:levelOf(getUser(uid).xp||0)})});
-  sock.on('leave',()=>{if(watching){watching.viewers.delete(sock.id);sock.leave('s'+watching.id);io.to(watching.host).emit('viewer-left',{sid:sock.id});io.to('s'+watching.id).emit('count',watching.viewers.size);watching=null}});
+  sock.on('leave',()=>{if(watching){if(watching.guest?.sid===sock.id)endGuest(watching);watching.reqs?.delete(sock.id);watching.viewers.delete(sock.id);sock.leave('s'+watching.id);io.to(watching.host).emit('viewer-left',{sid:sock.id});if(watching.guest)io.to(watching.guest.sid).emit('viewer-left',{sid:sock.id});io.to('s'+watching.id).emit('count',watching.viewers.size);watching=null}});
   sock.on('signal',({to,data}={})=>{if(!sigOk()||typeof to!=='string')return; // relay offers/answers/ICE only between host and its viewers
-    const r=hosting||watching;if(!r)return;if(hosting?r.viewers.has(to):to===r.host)io.to(to).emit('signal',{from:sock.id,data})});
+    const r=hosting||watching;if(!r)return;const g=r.guest?.sid;
+    if(hosting?r.viewers.has(to):(to===r.host||(sock.id===g&&r.viewers.has(to))||(to===g&&data?.g)))io.to(to).emit('signal',{from:sock.id,data})});
+  // ---- Co-host (guest) requests ----
+  const endGuest=r=>{if(!r?.guest)return;const g=r.guest;r.guest=null;io.to('s'+r.id).emit('guest-end',{sid:g.sid});io.to(r.host).emit('guest-end',{sid:g.sid});io.emit('streams')};
+  sock.on('guest-req',()=>{const r=watching;if(!r)return sock.emit('err','Not watching');if(r.guest)return sock.emit('err','This stream already has a guest');
+    r.reqs=r.reqs||new Map();if(r.reqs.has(sock.id))return;r.reqs.set(sock.id,uid);io.to(r.host).emit('guest-req',{sid:sock.id,user:pub(getUser(uid))});sock.emit('guest-pending')});
+  sock.on('guest-cancel',()=>{const r=watching;if(r?.reqs?.delete(sock.id))io.to(r.host).emit('guest-cancel',{sid:sock.id});if(r?.guest?.sid===sock.id)endGuest(r)});
+  sock.on('guest-answer',({sid,accept}={})=>{const r=hosting;if(!r||typeof sid!=='string'||!r.reqs?.has(sid))return;const gu=r.reqs.get(sid);r.reqs.delete(sid);
+    if(!accept||r.guest||!r.viewers.has(sid))return io.to(sid).emit('guest-no');
+    r.guest={sid,uid:gu};io.to(sid).emit('guest-ok',{peers:[r.host,...[...r.viewers].filter(v=>v!==sid)]});io.to('s'+r.id).emit('guest',{sid,user:pub(getUser(gu))});io.emit('streams')});
+  sock.on('guest-end',()=>{const r=hosting||watching;if(r&&(hosting||r.guest?.sid===sock.id))endGuest(r)});
   sock.on('chat',({text}={})=>{if(!chatOk())return sock.emit('err','Slow down');const r=watching||hosting;text=String(text||'').trim().slice(0,300);if(!r||!text)return;
     db.prepare('INSERT INTO chat(stream_id,user_id,text) VALUES(?,?,?)').run(r.id,uid,text);io.to('s'+r.id).emit('chat',{from:name(),text})});
   sock.on('gift',({k}={},cb)=>{if(typeof cb!=='function')cb=()=>{};if(!giftOk())return cb({error:'Slow down'});if(!Number.isInteger(k))return cb({error:'Bad gift'});const r=watching;const g=GIFTS[k];if(!r)return cb?.({error:'Not watching'});
-    const lvl=levelOf(getUser(uid).xp||0).n;if(!g||!(g[2]>0)||(g[5]!=null&&!(typeof g[5]==='number'&&lvl>=g[5])))return cb?.({error:'Gift locked'});if(r.uid===uid)return cb?.({error:"Can't gift yourself"});
+    const lvl=levelOf(getUser(uid).xp||0).n;if(!g||!(g[2]>0)||(g[5]!=null&&!(typeof g[5]==='number'&&lvl>=g[5])&&!(g[5]==='VIP'&&isPremium(getUser(uid)))))return cb?.({error:'Gift locked'});if(r.uid===uid)return cb?.({error:"Can't gift yourself"});
     const c=g[2],d=giftDiamonds(c);
     try{sendGift(uid,r.uid,c,d)}catch(e){return cb?.({error:e.message==='NOCOINS'?'NOCOINS':'Gift failed',coins:getUser(uid).coins})}
     db.prepare('INSERT INTO gifts_sent(stream_id,sender,receiver,gift_key,coins,diamonds) VALUES(?,?,?,?,?,?)').run(r.id,uid,r.uid,g[0],c,d);
@@ -323,7 +360,7 @@ io.on('connection',sock=>{
     const id=db.prepare('INSERT INTO dms(sender,receiver,text) VALUES(?,?,?)').run(uid,o.id,text).lastInsertRowid;const m=db.prepare('SELECT created_at FROM dms WHERE id=?').get(id);
     const me_=getUser(uid);io.to('u'+o.id).emit('dm',{id,from:me_.username,user:pub(me_),text,at:m.created_at,mine:false});io.to('u'+o.id).emit('unread',unreadTotal(o.id));
     sock.to('u'+uid).emit('dm',{id,from:to,with:to,text,at:m.created_at,mine:true});cb({ok:1,id,at:m.created_at})});
-  sock.on('disconnect',()=>{const n=(online.get(uid)||1)-1;if(n)online.set(uid,n);else online.delete(uid);if(hosting)endRoom(hosting);if(watching){watching.viewers.delete(sock.id);io.to(watching.host).emit('viewer-left',{sid:sock.id});io.to('s'+watching.id).emit('count',watching.viewers.size)}});
+  sock.on('disconnect',()=>{const n=(online.get(uid)||1)-1;if(n)online.set(uid,n);else online.delete(uid);if(hosting)endRoom(hosting);if(watching){if(watching.guest?.sid===sock.id)endGuest(watching);watching.reqs?.delete(sock.id);watching.viewers.delete(sock.id);io.to(watching.host).emit('viewer-left',{sid:sock.id});if(watching.guest)io.to(watching.guest.sid).emit('viewer-left',{sid:sock.id});io.to('s'+watching.id).emit('count',watching.viewers.size)}});
 });
 const stop=()=>{io.close();server.close(()=>{db.close();process.exit(0)});setTimeout(()=>process.exit(0),5e3)};process.on('SIGTERM',stop);process.on('SIGINT',stop);
 server.listen(PORT,HOST,()=>console.log(`Tap.in on http://${HOST}:${PORT} env=${PROD?'production':'dev'} demo=${DEMO} payments=${!!stripe} turn=${!!process.env.TURN_URL} data=${DATA_DIR}`));

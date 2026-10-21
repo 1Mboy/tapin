@@ -1,12 +1,22 @@
 // Tagged-style features: Discover, Views, Friends, Activity, Search, Streamer tools, Luv, Pets, Settings, Blocks/Bouncers, Feedback.
 module.exports=function(c){
-const {app,db,auth,pub,me,getUser,limiter,ageOf,levelOf,rankOf,settingsOf,received,isMatch,notify,friendState,isBlocked,gq,ageOk}=c;
+const {app,db,auth,pub,me,getUser,limiter,ageOf,levelOf,rankOf,settingsOf,received,isMatch,notify,friendState,isBlocked,gq,ageOk,distOk,distLabel}=c;
 const byName=n=>typeof n==='string'?db.prepare('SELECT * FROM users WHERE username=?').get(n):null;
 const live=()=>new Map([...c.rooms.values()].map(r=>[r.uid,r.id]));
-const card=(u,viewer)=>{const L=live();return{...pub(u),live:L.has(u.id),stream_id:L.get(u.id)||null,match:viewer?isMatch(viewer,u.id):false}};
+const card=(u,viewer)=>{const L=live();return{...pub(u),live:L.has(u.id),stream_id:L.get(u.id)||null,match:viewer?isMatch(viewer,u.id):false,distance:viewer?distLabel(getUser(viewer),u):null}};
 const lim=limiter(120,60e3);
 const unreadAct=uid=>db.prepare('SELECT COUNT(*) n FROM notifications WHERE user_id=? AND read_at IS NULL').get(uid).n;
 
+// ---- Map pins: only users who shared location; stored on a ~2 km grid plus a stable per-user offset (≤ ~1 km), never exact ----
+const jit=(id,k)=>{const h=require('crypto').createHash('sha256').update(String(id)+':'+k+':tapin-map').digest();return (h.readUInt16BE(0)/65535-.5)*0.018};
+const pin=u=>({lat:+(u.lat+jit(u.id,'a')).toFixed(3),lng:+(u.lng+jit(u.id,'b')).toFixed(3)});
+app.get('/api/map',auth,(req,res)=>{const me_=req.user,q=req.query,L=live();
+  const rows=db.prepare(`SELECT * FROM users u WHERE u.lat IS NOT NULL AND u.id<>? AND u.id NOT IN(SELECT blocked FROM blocks WHERE blocker=?) AND u.id NOT IN(SELECT blocker FROM blocks WHERE blocked=?)
+    AND (COALESCE(json_extract(u.settings,'$.dating_mode'),1)=1 OR u.id IN(${[...L.keys()].map(Number).join(',')||0})) AND (?='' OR u.gender=?) LIMIT 500`)
+    .all(me_.id,me_.id,me_.id,gq(q.only==='live'?'':q.gender),gq(q.only==='live'?'':q.gender))
+    .filter(u=>(q.only==='live'?L.has(u.id):ageOk(u,q))&&(me_.lat==null||distOk(me_,u,{...q,dist:q.dist==='any'||!q.dist?'500':q.dist})));
+  res.json({me:me_.lat!=null?pin(me_):null,pins:rows.map(u=>({...pub(u),...pin(u),live:L.has(u.id),stream_id:L.get(u.id)||null,distance:distLabel(me_,u)}))
+    .filter(p=>q.only!=='live'||p.live)})});
 // ---- Settings ----
 app.put('/api/me/settings',auth,(req,res)=>{const cur=settingsOf(req.user),b=req.body||{},out={...cur};
   for(const k of['dating_mode','hide_in_match','email_newsletter','email_pets','email_luv','email_friends'])if(typeof b[k]==='boolean')out[k]=b[k];
@@ -19,8 +29,9 @@ app.get('/api/discover',auth,(req,res)=>{const q=req.query,city=(typeof q.city==
      AND COALESCE(json_extract(u.settings,'$.dating_mode'),1)=1 AND (?='' OR u.gender=?)
      ORDER BY (CASE WHEN ?<>'' AND u.city=? COLLATE NOCASE THEN 0 WHEN ?<>'' AND u.city LIKE '%'||?||'%' THEN 1 WHEN u.city<>'' THEN 2 ELSE 3 END),u.id DESC LIMIT 300`)
     .all(req.user.id,req.user.id,req.user.id,gq(q.gender),gq(q.gender),city,city,city,city)
-    .filter(u=>ageOk(u,q)).filter(u=>dist==='any'||!city||(u.city||'').toLowerCase().includes(city.toLowerCase()));
-  res.json({city,users:rows.slice(0,120).map(u=>card(u,req.user.id)),
+    .filter(u=>ageOk(u,q)&&distOk(req.user,u,{...q,city}));
+  const vk=req.user.lat!=null;if(vk)rows.sort((a,b)=>{const ka=a.lat==null?1e9:Math.hypot(a.lat-req.user.lat,a.lng-req.user.lng),kb=b.lat==null?1e9:Math.hypot(b.lat-req.user.lat,b.lng-req.user.lng);return ka-kb});
+  res.json({city,has_location:req.user.lat!=null,users:rows.slice(0,120).map(u=>card(u,req.user.id)),
     likes:db.prepare('SELECT COUNT(*) n FROM meets WHERE target=? AND liked=1').get(req.user.id).n,
     views:db.prepare('SELECT COUNT(*) n FROM profile_views WHERE target=?').get(req.user.id).n})});
 app.get('/api/views',auth,(req,res)=>res.json(db.prepare('SELECT u.*,v.created_at viewed_at FROM profile_views v JOIN users u ON u.id=v.viewer WHERE v.target=? ORDER BY v.created_at DESC LIMIT 120').all(req.user.id).map(u=>({...card(u,req.user.id),viewed_at:u.viewed_at}))));

@@ -12,3 +12,4 @@ __pycache__/
 .github_token.env
 .stripe_key.env
 .metered.env
+.admin_token.env

@@ -94,7 +94,17 @@ function connect(){if(sock)return;api("/api/ice").then(r=>S.ice=r.iceServers).ca
  sock.on("ended",()=>{if(S.route=="viewer"){toast("Stream ended");S.view=null;go("#/live")}});
  sock.on("kicked",()=>{toast("You were removed from this stream");S.view=null;go("#/live")});
  sock.on("viewer",({sid})=>hostPeer(sid));
- sock.on("viewer-left",({sid})=>{S.peers[sid]?.close();delete S.peers[sid]});
+ sock.on("viewer-left",({sid})=>{S.peers[sid]?.close();delete S.peers[sid];S.gpeers[sid]?.close();delete S.gpeers[sid];S.greqs=(S.greqs||[]).filter(r=>r.sid!=sid);drawReqs()});
+ sock.on("guest-req",r=>{S.greqs=[...(S.greqs||[]).filter(x=>x.sid!=r.sid),r];drawReqs();guestReqSheet(r)});
+ sock.on("guest-cancel",({sid})=>{S.greqs=(S.greqs||[]).filter(r=>r.sid!=sid);drawReqs()});
+ sock.on("guest-pending",()=>{S.guestPending=true;updGuestUI();toast("Guest request sent — waiting for the host")});
+ sock.on("guest-no",()=>{S.guestPending=false;updGuestUI();toast("The host declined your guest request")});
+ sock.on("guest-ok",async({peers})=>{S.guestPending=false;try{S.gstream=await navigator.mediaDevices.getUserMedia({video:{width:480,height:640,facingMode:"user"},audio:true})}catch(e){toast("Camera needed to join as guest");sock.emit("guest-end");return}
+  S.guestMine=true;S.guest=S.me;showGuest(S.gstream,true);updGuestUI();toast("You're on! You are now a guest 🎥");for(const p of peers)gOffer(p)});
+ sock.on("guest-peer",({sid})=>gOffer(sid));
+ sock.on("guest",({user})=>{S.guest=user;updGuestUI();addChat(`<b class="gold">${esc(user.display_name||user.username)}</b> joined as a guest 🎥`)});
+ sock.on("guest-end",()=>{if(S.guest)addChat(`<span class="muted">Guest left the stream</span>`);S.guestMine=false;closeG()});
+ sock.on("premium",m=>{setMe(m);toast("🚀 Premium activated!");if(S.route=="premium")premium()});
  sock.on("signal",onSignal);
  sock.on("unread",n=>{S.unread=n;badges()});
  sock.on("activity",a=>{S.act=a.unread;badges();api("/api/friends").then(r=>{S.freq=r.requests.length;badges()}).catch(()=>{})});
@@ -106,12 +116,29 @@ const nameColor=n=>`hsl(${[205,45,190,215,35,180][hue(n)%6]},85%,${[62,60,58,66,
 const ice=()=>({iceServers:S.ice||[{urls:["stun:stun.l.google.com:19302"]}]});
 async function hostPeer(sid){if(!S.stream)return;const pc=new RTCPeerConnection(ice());S.peers[sid]=pc;S.stream.getTracks().forEach(t=>pc.addTrack(t,S.stream));
  pc.onicecandidate=e=>e.candidate&&sock.emit("signal",{to:sid,data:{ice:e.candidate}});await pc.setLocalDescription(await pc.createOffer());sock.emit("signal",{to:sid,data:{sdp:pc.localDescription}})}
-async function onSignal({from,data}){let pc=S.peers[from];
+async function onSignal({from,data}){if(data.g)return onGSignal(from,data);let pc=S.peers[from];
  if(data.sdp?.type=="offer"){pc?.close();pc=S.peers[from]=new RTCPeerConnection(ice());pc.onicecandidate=e=>e.candidate&&sock.emit("signal",{to:from,data:{ice:e.candidate}});
   pc.ontrack=e=>{const v=$("#rv");if(v){v.srcObject=e.streams[0];v.classList.add("on");$("#vph")?.remove();v.play?.().catch(()=>{v.muted=true;v.play().catch(()=>{})})}};
   await pc.setRemoteDescription(data.sdp);await pc.setLocalDescription(await pc.createAnswer());sock.emit("signal",{to:from,data:{sdp:pc.localDescription}})}
  else if(data.sdp)await pc?.setRemoteDescription(data.sdp);else if(data.ice)await pc?.addIceCandidate(data.ice).catch(()=>{})}
-const closePeers=()=>{Object.values(S.peers).forEach(p=>p.close());S.peers={}};
+const closePeers=()=>{Object.values(S.peers).forEach(p=>p.close());S.peers={};closeG()};
+// ---- Co-host (guest) video: separate peer connections tagged g:1 ----
+S.gpeers={};
+function showGuest(stream,mine){const v=$("#gv");if(!v)return;v.srcObject=stream;v.muted=!!mine;v.classList.toggle("mine",!!mine);$("#gbox")?.classList.add("on");v.play?.().catch(()=>{v.muted=true;v.play().catch(()=>{})})}
+function closeG(){Object.values(S.gpeers||{}).forEach(p=>p.close());S.gpeers={};S.gstream?.getTracks().forEach(t=>t.stop());S.gstream=null;S.guest=null;const b=$("#gbox");if(b){b.classList.remove("on");$("#gv").srcObject=null}updGuestUI()}
+function gPeer(sid){S.gpeers[sid]?.close();const pc=S.gpeers[sid]=new RTCPeerConnection(ice());pc.onicecandidate=e=>e.candidate&&sock.emit("signal",{to:sid,data:{g:1,ice:e.candidate}});pc.ontrack=e=>showGuest(e.streams[0]);return pc}
+async function gOffer(sid){if(!S.gstream)return;const pc=gPeer(sid);S.gstream.getTracks().forEach(t=>pc.addTrack(t,S.gstream));await pc.setLocalDescription(await pc.createOffer());sock.emit("signal",{to:sid,data:{g:1,sdp:pc.localDescription}})}
+async function onGSignal(from,data){let pc=S.gpeers[from];
+ if(data.sdp?.type=="offer"){pc=gPeer(from);await pc.setRemoteDescription(data.sdp);await pc.setLocalDescription(await pc.createAnswer());sock.emit("signal",{to:from,data:{g:1,sdp:pc.localDescription}})}
+ else if(data.sdp)await pc?.setRemoteDescription(data.sdp);else if(data.ice)await pc?.addIceCandidate(data.ice).catch(()=>{})}
+function guestReq(){if(S.guestMine)return guestLeave();if(S.guest)return toast("This stream already has a guest");sock.emit("guest-req")}
+function guestLeave(){sock.emit("guest-end");S.guestMine=false;closeG()}
+function updGuestUI(){const b=$("#gbtn");if(b){b.classList.toggle("on",!!S.guestMine||!!S.guestPending);b.title=S.guestMine?"Leave guest spot":"Request to join as guest";b.innerHTML=S.guestMine?"✕":S.guestPending?"⏳":"👤+"}
+ const n=$("#gname");if(n)n.textContent=S.guest?`${S.guest.display_name||S.guest.username} (guest)`:"";const k=$("#gkick");if(k)k.style.display=S.guest&&S.live?"":"none"}
+function guestReqSheet(r){sheet(`<div class="shd"><b>Guest request</b><button class="x" onclick="closePops()">✕</button></div><div class="pad greq">${av(r.user,64)}<p><b>${nm(r.user)}</b> wants to join your stream as a guest.</p>
+ <div class="row2"><button class="btn out" onclick="guestAnswer('${r.sid}',false)">Decline</button><button class="btn pri" onclick="guestAnswer('${r.sid}',true)">Accept</button></div></div>`,"center")}
+function guestAnswer(sid,ok){sock.emit("guest-answer",{sid,accept:ok});S.greqs=(S.greqs||[]).filter(r=>r.sid!=sid);closePops();drawReqs()}
+function drawReqs(){const e=$("#greqs");if(!e)return;const l=S.greqs||[];e.innerHTML=l.length?l.map(r=>`<div class="gri">${av(r.user,32)}<b>${nm(r.user)}</b><span class="sp"></span><button class="btn sm out" onclick="guestAnswer('${r.sid}',false)">✕</button><button class="btn sm pri" onclick="guestAnswer('${r.sid}',true)">Accept</button></div>`).join(""):'<small class="muted">No guest requests right now.</small>'}
 function setStat(k,v){$$(`[data-st="${k}"]`).forEach(e=>e.textContent=fmt(v))}
 function addChat(h){const c=$("#lchat");if(!c)return;c.insertAdjacentHTML("beforeend",`<p>${h}</p>`);while(c.children.length>80)c.firstElementChild.remove();c.scrollTop=1e9}
 function giftPop(k){const f=document.createElement("div");f.className="gpop";f.innerHTML=gimg(k,"");document.body.append(f);setTimeout(()=>f.remove(),1600)}
@@ -120,26 +147,26 @@ function floatHeart(){const box=$(".vstage");if(!box)return;const h=document.cre
 // ---------------- router ----------------
 async function render(){if(!S.me)return gate();shell();closePops();
  const [a,b,c]=location.hash.replace(/^#\/?/,"").split("/").map(decodeURIComponent);const r=a||"live";
- if(S.route=="viewer"&&!(r=="live"&&b=="view")){sock?.emit("leave");closePeers();S.view=null}
+ if(S.route=="viewer"){if(S.guestMine||S.guestPending)sock?.emit("guest-cancel");S.guestMine=S.guestPending=false;if(!(r=="live"&&b=="view")){sock?.emit("leave");closePeers();S.view=null}else closeG()}
  if(S.live&&r!="golive"){if(!confirm("End your live stream?")){location.hash="#/golive";return}await endLive(true)}
  S.prevRoute=S.route;S.route=r=="live"&&b=="view"?"viewer":r;scrollTo(0,0);
- try{if(r=="live"){if(b=="view")return await viewer(+c);if(b=="search")return search();if(b=="tools")return await tools(c||"gifters");return liveFeed()}
-  if(r=="golive")return golive();if(r=="discover")return await discover(b||"near");if(r=="match")return await match();if(r=="chats")return chats(b);
+ try{if(r=="live"){if(b=="view")return await viewer(+c);if(b=="search")return search();if(b=="map")return mapView("live");if(b=="tools")return await tools(c||"gifters");return liveFeed()}
+  if(r=="golive")return golive();if(r=="discover")return b=="map"?await mapView("discover"):await discover(b||"near");if(r=="match")return await match();if(r=="chats")return chats(b);
   if(r=="profile")return await profile();if(r=="u")return await userProfile(b);if(r=="friends")return await friends(b||"requests");if(r=="pets")return await pets();if(r=="luv")return await luv();
   if(r=="gold")return gold();if(r=="diamonds")return await diamonds();if(r=="premium")return premium();return liveFeed()}catch(e){console.error(e);toast(e.message)}}
 addEventListener("hashchange",render);
 
 // ---------------- LIVE feed ----------------
-async function loadLive(){try{S.streams=await api("/api/streams")}catch(e){S.streams=[]}if(S.route=="live")drawLive()}
+async function loadLive(){try{S.streams=await api("/api/streams?dist="+(S.filters.dist=="any"?(S.me?.has_location?"50":"city"):S.filters.dist)+"&city=")}catch(e){S.streams=[]}if(S.route=="live")drawLive()}
 function liveFeed(){setNav("live","Live");V(`<div class="lv"><div class="ltools"><button class="ib" title="Search" onclick="go('#/live/search')">🔍</button><button class="ib" title="Top Gifters" onclick="go('#/live/tools/gifters')">🏆</button>
  <button class="ib" title="Streamer tools" onclick="go('#/live/tools/menu')">🔧</button><button class="ib" title="Share" onclick="shareLive()">✈️</button></div><div id="lvb"><div class="muted pad">Loading…</div></div></div>
  <button class="golivefab" onclick="go('#/golive')">GO LIVE!</button>`);loadLive()}
 function tile(s,small){const u=s.user;return `<div class="tile ${small?"sm":""}" onclick="go('#/live/view/${s.id}')"><div class="tim">${cover(u)}<span class="vp">👁 ${fmt(s.viewers)}</span>${lvlBadge(u.level||1)}
- ${s.tags?`<span class="tstrip">${esc(s.tags.split(/\s+/)[0].replace(/^#/,"").toUpperCase().slice(0,12))}</span>`:""}</div><b class="tn">${nm(u)}</b><small class="tt">${esc(s.title||"")}${s.tags?" "+esc(s.tags):""}</small></div>`}
+ ${s.tags?`<span class="tstrip">${esc(s.tags.split(/\s+/)[0].replace(/^#/,"").toUpperCase().slice(0,12))}</span>`:""}</div><b class="tn">${nm(u)}${s.guest?' <i class="gst">+1</i>':""}</b><small class="tt">${s.distance?esc(s.distance)+" · ":""}${esc(s.title||"")}${s.tags?" "+esc(s.tags):""}</small></div>`}
 function drawLive(){const all=S.streams,favs=all.filter(s=>s.following);const el=$("#lvb");if(!el)return;
  let list=[...all];const t=S.ltab,g=S.lgender,mc=(S.me.city||"").toLowerCase();
  if(t=="TRENDING")list.sort((a,b)=>b.viewers-a.viewers||b.hearts-a.hearts);
- if(t=="NEARBY")list=list.filter(s=>(s.user.city||"")).sort((a,b)=>((b.user.city||"").toLowerCase()==mc)-((a.user.city||"").toLowerCase()==mc));
+ if(t=="NEARBY")list=list.filter(s=>s.near).sort((a,b)=>(parseFloat(String(a.distance).replace("< ",""))||999)-(parseFloat(String(b.distance).replace("< ",""))||999));
  if(t=="NEW")list.sort((a,b)=>b.started-a.started);
  if(t=="DATE")list=list.filter(s=>s.dating&&s.user.age);
  if(g!="ALL")list=list.filter(s=>s.user.gender==(g=="MEN"?"m":"f"));
@@ -147,7 +174,7 @@ function drawLive(){const all=S.streams,favs=all.filter(s=>s.following);const el
  el.innerHTML=`<section class="card fav"><h4>FAVORITES</h4>${favs.length?`<div class="trow">${favShow.map(s=>tile(s,1)).join("")}</div>${favs.length>n?`<a class="seemore" onclick="S.favMore=!S.favMore;drawLive()">${S.favMore?"SEE LESS ⌃":"SEE MORE ⌄"}</a>`:""}`:`<p class="muted">Streamers you favorite show up here when they go live. Tap ☆ Favorite on any stream.</p>`}</section>
  <div class="lcols"><section class="card feed"><div class="ftabs"><div class="tabs2">${["TRENDING","NEARBY","NEW","DATE"].map(x=>`<b class="${x==t?"on":""}" onclick="S.ltab='${x}';drawLive()">${x}</b>`).join("")}</div>
   <div class="gp">${["ALL","MEN","WOMEN"].map(x=>`<b class="${x==g?"on":""}" onclick="S.lgender='${x}';drawLive()">${x}</b>`).join("")}</div></div>
-  ${list.length?`<div class="tgrid">${list.map(s=>tile(s)).join("")}</div>`:`<div class="empty"><div class="ei">📺</div><b>${all.length?"No streams match this filter":"No one is live right now"}</b><p class="muted">Be the first — tap GO LIVE!</p><button class="btn pri" onclick="go('#/golive')">GO LIVE!</button></div>`}</section>
+  ${t=="NEARBY"?`<div class="fchips"><b onclick="filterSheet()">📏 ${S.filters.dist=="any"?(S.me.has_location?"Within 50 "+unit():"My city"):distTxt(S.filters.dist)}</b>${S.me.has_location?"":`<b onclick="askLocation().then(loadLive)">📍 Use my location</b>`}<b class="mtog" onclick="go('#/live/map')">🗺 Map</b></div>`:""}${list.length?`<div class="tgrid">${list.map(s=>tile(s)).join("")}</div>`:`<div class="empty"><div class="ei">📺</div><b>${all.length?"No streams match this filter":"No one is live right now"}</b><p class="muted">Be the first — tap GO LIVE!</p><button class="btn pri" onclick="go('#/golive')">GO LIVE!</button></div>`}</section>
  <aside class="card ann"><h4>ANNOUNCEMENTS</h4><div class="anl">${annos()}</div></aside></div>`}
 const annos=()=>[["#/gold","linear-gradient(135deg,#0b3d91,#1e90ff)","NEW!","BUY WITH COINS!","Send gifts your favorite streamers love"],
  ["#/live/tools/gifters","linear-gradient(135deg,#3a2a00,#c99400 60%,#ffc83d)","WEEKLY","TOP GIFTERS","See this week's biggest supporters"],
@@ -195,23 +222,23 @@ async function viewer(id){setNav("viewer","Live");connect();if(!S.streams.length
   <div class="vst"><span>💎 <b data-st="diamonds">${fmt(st.diamonds)}</b></span><span>⭐ <b data-st="fans">${fmt(st.fans)}</b></span><span>👁 <b data-st="viewers">${fmt(st.viewers)}</b></span><span>♥ <b data-st="hearts">${fmt(st.hearts)}</b></span></div>
   <span class="sp"></span><button class="btn sm ${r.following?"out":"pri"}" id="favb" onclick="favToggle('${esc(u.username)}')">${r.following?"★ Favorited":"☆ Favorite"}</button><button class="btn sm dark" onclick="go('#/live')">Exit</button></div>
   <div class="vbody"><div class="vstage"><video id="rv" autoplay playsinline></video><div id="vph" class="vph">${cover(u)}<span class="spin"></span><small>Connecting to stream…</small></div>
-   <div class="topg" id="topg">${topHtml(r.top)}</div>
+   <div class="topg" id="topg">${topHtml(r.top)}</div><div class="gbox2" id="gbox"><video id="gv" autoplay playsinline></video><small id="gname"></small><button class="gx" title="End guest" onclick="S.live?sock.emit('guest-end'):guestLeave()">✕</button></div>
    <div class="vleft"><button class="vb xp" onclick="xpInfo()" title="Your level"><i>${S.me.xp.n}</i><small>XP</small></button><button class="vb" onclick="sock.emit('heart')" title="Send heart">♥</button>
-    <button class="vb" onclick="toast('Guest requests are coming soon')" title="Request to join">👤+</button><button class="vb vip" onclick="go('#/premium')" title="VIP">VIP</button></div>
+    <button class="vb" id="gbtn" onclick="guestReq()" title="Request to join as guest">👤+</button><button class="vb vip" onclick="S.me.premium?(S.gtab='Exclusive',S.gpage=0,isPhone()?giftSheet():redrawG()):go('#/premium')" title="VIP">VIP</button></div>
    <div class="vchat ov"><div id="lchat" class="lchat"><p class="sys">Welcome to ${nm(u)}'s stream! Be kind. 💙</p></div>
     <div class="vbar"><input id="ci" placeholder="Say something…" maxlength="300" onkeydown="event.key=='Enter'&&sendChat()"><button class="ib" onclick="sendChat()">➤</button>
      <button class="ib mob gbtn" onclick="giftSheet()">🎁</button><button class="ib mob" onclick="sock.emit('heart')">♥</button></div></div>
    <button class="swn mob" onclick="nextStream(1)" title="Next stream">⌄</button></div>
   <aside class="vside">${gpanel()}</aside></div></div>
   ${others.length?`<section class="card also"><h4>VIEWERS ALSO WATCH</h4><div class="trow">${others.slice(0,8).map(s=>tile(s,1)).join("")}</div></section>`:""}</div>`);
- swipe($(".vstage"))}
+ S.guest=r.guest?.user||null;S.guestMine=false;S.guestPending=false;updGuestUI();swipe($(".vstage"))}
 function swipe(el){if(!el)return;let y0=null;el.addEventListener("touchstart",e=>y0=e.touches[0].clientY,{passive:true});el.addEventListener("touchend",e=>{if(y0==null)return;const d=y0-e.changedTouches[0].clientY;if(Math.abs(d)>70)nextStream(d>0?1:-1);y0=null})}
 function nextStream(dir){const l=S.streams,i=l.findIndex(s=>s.id==S.view?.id);if(l.length<2)return toast("No other streams live right now");const n=l[(i+dir+l.length)%l.length];go("#/live/view/"+n.id)}
 function sendChat(){const i=$("#ci");if(!i.value.trim())return;sock.emit("chat",{text:i.value});i.value=""}
 async function favToggle(n){const on=$("#favb").textContent.includes("Favorited");await api(`/api/users/${encodeURIComponent(n)}/follow`,{method:on?"DELETE":"POST"});
  const b=$("#favb");b.textContent=on?"☆ Favorite":"★ Favorited";b.className="btn sm "+(on?"pri":"out");toast(on?"Removed from favorites":"Added to favorites")}
 function xpInfo(){const x=S.me.xp;sheet(`<div class="shd"><b>Level ${x.n}</b><button class="x" onclick="closePops()">✕</button></div><div class="pad"><div class="bar blue"><i style="width:${x.pct}%"></i></div><p class="muted">${fmt(x.to_next)} XP to level ${x.n+1}. Earn 1 XP for every coin you spend on gifts. Higher levels unlock Exclusive gifts.</p></div>`,"center")}
-const locked=g=>g[5]!=null&&!(typeof g[5]=="number"&&(S.me.xp?.n||1)>=g[5]);
+const locked=g=>g[5]!=null&&!(typeof g[5]=="number"&&(S.me.xp?.n||1)>=g[5])&&!(g[5]=="VIP"&&S.me.premium);
 function gpanel(){const list=GIFTS.map((g,k)=>[g,k]).filter(([g])=>g[4]==S.gtab).sort((a,b)=>gkey(a[0])-gkey(b[0]));const pages=Math.max(1,Math.ceil(list.length/8));S.gpage=Math.min(S.gpage,pages-1);
  const x=S.me.xp||{n:1,pct:0};
  return `<div class="sg"><div class="sgh"><b>SEND A GIFT</b><span class="bal">🪙 <b data-coins>${fmt(S.coins)}</b></span><button class="pill gold" onclick="go('#/gold')">Buy</button></div>
@@ -235,46 +262,71 @@ async function golive(){setNav("broadcast","Go Live");connect();
  <p class="safe">🛡 Nudity or obscene behavior results in account deletion. Streams may be recorded for safety review.</p>
  <button class="btn pri full big" id="glb" onclick="startLive()">GO LIVE!</button></div></div>`);
  try{S.stream=await navigator.mediaDevices.getUserMedia({video:{width:720,height:1280,facingMode:"user"},audio:true});$("#pv").srcObject=S.stream;$("#glp").remove()}catch(e){$("#glp").innerHTML="⚠️<small>Camera unavailable: "+esc(e.message)+"</small>"}}
-function startLive(){if(!S.stream)return toast("Camera required to go live");$("#glb").disabled=true;
+async function startLive(){for(let i=0;i<25&&!S.stream&&$("#glp")&&!/unavailable/.test($("#glp").textContent);i++)await new Promise(r=>setTimeout(r,200));if(!S.stream)return toast("Camera required to go live");$("#glb").disabled=true;
  sock.emit("golive",{title:$("#gt").value||"Live now",tags:$("#gtg").value},r=>{S.live={id:r.id,title:$("#gt").value||"Live now",tags:$("#gtg").value,t0:Date.now()};broadcaster()})}
 function broadcaster(){const L=S.live;V(`<div class="vw bc"><div class="vmain card"><div class="vhd"><a class="vu">${av(S.me,44)}<span><b>${nm(S.me)} <i class="lbadge">LIVE</i></b><small>${esc(L.title)} ${esc(L.tags||"")}</small></span></a>
  <div class="vst"><span>💎 <b data-st="stream_diamonds">0</b></span><span>⭐ <b data-st="fans">0</b></span><span>👁 <b data-st="viewers">0</b></span><span>♥ <b data-st="hearts">0</b></span><span>⏱ <b id="ltm">0m 0s</b></span></div>
  <span class="sp"></span><button class="btn sm red" onclick="endLive()">End</button></div>
- <div class="vbody"><div class="vstage"><video id="bv" autoplay muted playsinline></video><div class="topg" id="topg">${topHtml([])}</div>
+ <div class="vbody"><div class="vstage"><video id="bv" autoplay muted playsinline></video><div class="topg" id="topg">${topHtml([])}</div><div class="gbox2" id="gbox"><video id="gv" autoplay playsinline></video><small id="gname"></small><button class="gx" title="End guest" onclick="S.live?sock.emit('guest-end'):guestLeave()">✕</button></div>
   <div class="vchat ov"><div id="lchat" class="lchat"><p class="sys">You're live! Viewers will appear here. 💙</p></div><div class="vbar"><input id="ci" placeholder="Chat with viewers…" onkeydown="event.key=='Enter'&&sendChat()"><button class="ib" onclick="sendChat()">➤</button></div></div></div>
- <aside class="vside"><div class="sg"><div class="sgh"><b>STREAM TOOLS</b></div><a class="tmi" onclick="flipCam()">🔄 Flip camera</a><a class="tmi" onclick="toggleMic(this)">🎤 Mute mic</a><a class="tmi" onclick="go('#/live/tools/bouncers')">🛡 Bouncers</a><a class="tmi" onclick="shareLive()">✈️ Share stream</a>
-  <p class="safe">🛡 Nudity or obscene behavior results in account deletion.</p></div></aside></div></div></div>`);
+ <aside class="vside"><div class="sg"><div class="sgh"><b>STREAM TOOLS</b></div><a class="tmi" onclick="flipCam()">🔄 Flip camera</a><a class="tmi" onclick="toggleMic(this)">🎤 Mute mic</a><a class="tmi" id="gkick" style="display:none" onclick="sock.emit('guest-end')">✕ Remove guest</a><a class="tmi" onclick="go('#/live/tools/bouncers')">🛡 Bouncers</a><a class="tmi" onclick="shareLive()">✈️ Share stream</a>
+  <div class="sgh"><b>GUEST REQUESTS</b></div><div id="greqs"></div><p class="safe">🛡 Nudity or obscene behavior results in account deletion.</p></div></aside></div></div></div>`);drawReqs();updGuestUI();
  $("#bv").srcObject=S.stream;clearInterval(S.ltimer);S.ltimer=setInterval(()=>{const e=$("#ltm");if(e)e.textContent=dur(Math.round((Date.now()-L.t0)/1000))},1000)}
 function toggleMic(b){const t=S.stream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;b.textContent=t.enabled?"🎤 Mute mic":"🔇 Unmute mic"}
 async function flipCam(){try{const cur=S.stream.getVideoTracks()[0].getSettings().facingMode;const ns=await navigator.mediaDevices.getUserMedia({video:{facingMode:cur=="user"?"environment":"user"}});const nt=ns.getVideoTracks()[0];
  Object.values(S.peers).forEach(p=>p.getSenders().find(s=>s.track?.kind=="video")?.replaceTrack(nt));S.stream.getVideoTracks()[0].stop();S.stream.removeTrack(S.stream.getVideoTracks()[0]);S.stream.addTrack(nt);$("#bv").srcObject=S.stream}catch(e){toast("Can't switch camera")}}
-function endLive(silent){return new Promise(ok=>{if(!S.live)return ok();sock.emit("endlive",{},sum=>{clearInterval(S.ltimer);S.stream?.getTracks().forEach(t=>t.stop());S.stream=null;closePeers();const L=S.live;S.live=null;
+function endLive(silent){return new Promise(ok=>{if(!S.live)return ok();sock.emit("endlive",{},sum=>{clearInterval(S.ltimer);S.greqs=[];S.stream?.getTracks().forEach(t=>t.stop());S.stream=null;closePeers();const L=S.live;S.live=null;
  if(!silent)V(`<div class="card sum"><h2>Stream Ended</h2>${av(S.me,84)}<b>${nm(S.me)}</b><small class="muted">${esc(L.title)}</small>
   <div class="sumg"><div><b>${dur(sum.duration||0)}</b><small>Duration</small></div><div><b>${fmt(sum.peak)}</b><small>Peak viewers</small></div><div><b>${fmt(sum.hearts)}</b><small>Hearts</small></div><div><b>💎 ${fmt(sum.diamonds)}</b><small>Diamonds earned</small></div><div><b>+${fmt(sum.new_fans)}</b><small>New fans</small></div></div>
   <button class="btn pri full" onclick="go('#/live')">Done</button><button class="btn out full" onclick="go('#/live/tools/recent')">Recent Streams</button></div>`);ok()})})}
 // ---------------- Discover ----------------
 const fq=()=>{const f=S.filters;return `gender=${f.gender}&min=${f.min}&max=${f.max}&dist=${f.dist}`};
-const ptile=(u,extra="")=>`<a class="ptile" href="#/u/${esc(u.username)}">${cover(u)}${u.live?'<i class="lbadge">LIVE</i>':""}${u.online?'<i class="od"></i>':""}<span class="pg"><b>${ageCity(u)}</b><small>${esc(u.city||"")}${extra}</small></span></a>`;
+const unit=()=>S.me?.settings?.units=="km"?"km":"mi";
+const distTxt=d=>d=="any"?"Anywhere":d=="city"?"My city":`Within ${d} ${unit()}`;
+function askLocation(silent){return new Promise(ok=>{if(!navigator.geolocation){if(!silent)toast("Location isn't available on this device — using your city");return ok(false)}
+ navigator.geolocation.getCurrentPosition(async p=>{try{setMe(await api("/api/me/location",{method:"POST",body:{lat:p.coords.latitude,lng:p.coords.longitude}}));if(!silent)toast("📍 Location on — stored approximately (~2 km), never exact");ok(true)}catch(e){toast(e.message);ok(false)}},
+  e=>{if(!silent)toast(e.code==1?"Location permission denied — using your city instead":"Couldn't get your location — using your city instead");ok(false)},{enableHighAccuracy:false,timeout:10000,maximumAge:36e5})})}
+async function locOff(){setMe(await api("/api/me/location",{method:"DELETE"}));toast("Location turned off");if(["number"].includes(typeof +S.filters.dist)&&+S.filters.dist)S.filters.dist="city";render()}
+const ptile=(u,extra="")=>`<a class="ptile" href="#/u/${esc(u.username)}">${cover(u)}${u.live?'<i class="lbadge">LIVE</i>':""}${u.online?'<i class="od"></i>':""}${u.premium?'<i class="prb">🚀</i>':""}<span class="pg"><b>${ageCity(u)}</b><small>${esc(u.city||"")}${u.distance?" · "+esc(u.distance):""}${extra}</small></span></a>`;
+const locBanner=()=>S.me.has_location||S.locDismiss?"":`<div class="locb"><span>📍 Turn on location to see how far people are and filter by distance.</span><button class="btn sm pri" onclick="askLocation().then(render)">Turn on</button><button class="ib" onclick="S.locDismiss=1;this.parentNode.remove()">✕</button></div>`;
 async function discover(tab){setNav("discover","Discover");const d=await api("/api/discover?"+fq());const city=d.city||S.me.city||"Anywhere";
- const head=`<div class="dtabs"><a class="${tab=="near"?"on":""}" href="#/discover/near">📍 ${esc(city)}</a><a class="${tab=="likes"?"on":""}" href="#/discover/likes">♥ Likes <i class="cnt">${fmt(d.likes)}</i></a><a class="${tab=="views"?"on":""}" href="#/discover/views">👁 Views <i class="cnt">${fmt(d.views)}</i></a><span class="sp"></span><button class="ib" onclick="filterSheet('discover')" title="Filters">⚙︎</button></div>`;
+ const head=`<div class="dtabs"><a class="${tab=="near"?"on":""}" href="#/discover/near">📍 ${esc(city)}</a><a class="${tab=="likes"?"on":""}" href="#/discover/likes">♥ Likes <i class="cnt">${fmt(d.likes)}</i></a><a class="${tab=="views"?"on":""}" href="#/discover/views">👁 Views <i class="cnt">${fmt(d.views)}</i></a><span class="sp"></span><a class="mtog" href="#/discover/map" title="Map view">🗺 Map</a><button class="ib" onclick="filterSheet('discover')" title="Filters">⚙︎</button></div>`;
  let body;
  if(tab=="likes"){const l=await api("/api/likes/full");body=l.length?`<div class="dgrid">${l.map(u=>ptile(u," · liked you "+tm(u.liked_at))).join("")}</div>`:`<div class="empty"><div class="ei">♥</div><b>No likes yet</b><p class="muted">Play Match to get noticed.</p><button class="btn pri" onclick="go('#/match')">Play Match</button></div>`}
  else if(tab=="views"){const l=await api("/api/views");body=l.length?`<div class="dgrid">${l.map(u=>ptile(u," · "+tm(u.viewed_at))).join("")}</div>`:`<div class="empty"><div class="ei">👁</div><b>No profile views yet</b><p class="muted">People who view your profile appear here.</p></div>`}
  else{const live=S.streams.length?S.streams:await api("/api/streams").catch(()=>[]);
   body=`<div class="dgrid"><a class="ptile dlive" href="#/live"><span class="dlv">${live[0]?cover(live[0].user):""}<b>▶ Discover Live</b><small>${live.length} live now</small></span></a>${d.users.map(u=>ptile(u)).join("")}</div>${d.users.length?"":'<p class="muted pad">No one matches your filters yet.</p>'}`}
- V(`<div class="card disc">${head}${body}</div>`)}
+ V(`<div class="card disc">${head}${tab=="near"?locBanner()+`<div class="fchips"><b onclick="filterSheet()">📏 ${distTxt(S.filters.dist)}</b><b onclick="filterSheet()">${S.filters.gender=="m"?"Men":S.filters.gender=="f"?"Women":"Everyone"}</b><b onclick="filterSheet()">${S.filters.min}–${S.filters.max}</b></div>`:""}${body}</div>`)}
+// ---------------- Map view (Leaflet + OpenStreetMap tiles darkened with CSS, fuzzed pins) ----------------
+let leafP=null;const leaflet=()=>leafP||(leafP=new Promise((ok,no)=>{const l=document.createElement("link");l.rel="stylesheet";l.href="/vendor/leaflet/leaflet.css";document.head.append(l);
+ const sc=document.createElement("script");sc.src="/vendor/leaflet/leaflet.js";sc.onload=()=>ok(window.L);sc.onerror=no;document.head.append(sc)}));
+async function mapView(ctx){const live=ctx=="live";setNav(ctx,live?"Live":"Discover");
+ V(`<div class="card mapc"><div class="dtabs">${live?`<a href="#/live">‹ Live</a><a class="on">🗺 Live near me</a>`:`<a href="#/discover/near">📍 Grid</a><a class="on">🗺 Map</a>`}<span class="sp"></span>
+  <span class="muted mleg"><i class="lg u"></i>People <i class="lg l"></i>Live</span>${live?"":`<button class="ib" onclick="filterSheet()" title="Filters">⚙︎</button>`}</div>
+  ${locBanner()}<div id="map" class="map"></div><p class="muted pad msm">Pins are approximate (about 1–2 km off) and only show people who chose to share their location.</p></div>`);
+ const [L,d]=await Promise.all([leaflet(),api(`/api/map?${fq()}${live?"&only=live":""}`)]);const el=$("#map");if(!el)return;
+ const m=L.map(el,{zoomControl:!isPhone(),attributionControl:true}).setView(d.me?[d.me.lat,d.me.lng]:(d.pins[0]?[d.pins[0].lat,d.pins[0].lng]:[39.5,-98.35]),d.me||d.pins[0]?11:4);S.map=m;
+ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,className:"darktiles",referrerPolicy:"strict-origin-when-cross-origin",attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(m);
+ if(d.me)L.circle([d.me.lat,d.me.lng],{radius:1500,color:"#1e8bff",weight:1,fillColor:"#1e8bff",fillOpacity:.15}).addTo(m).bindTooltip("You (approx.)");
+ const pts=[];for(const p of d.pins){const img=p.avatar?`<img src="${esc(p.avatar)}" alt="">`:`<span style="background:${G(hue(p.username))}">${esc((p.display_name||p.username)[0].toUpperCase())}</span>`;
+  const ic=L.divIcon({className:"",html:`<div class="mpin ${p.live?"live":""}">${img}${p.live?"<b>LIVE</b>":""}</div>`,iconSize:[46,46],iconAnchor:[23,23]});
+  L.marker([p.lat,p.lng],{icon:ic,title:p.display_name}).addTo(m).on("click",()=>go(p.live&&(live||p.stream_id)?"#/live/view/"+p.stream_id:"#/u/"+encodeURIComponent(p.username)))
+   .bindTooltip(`${esc(p.display_name)}${p.age?", "+p.age:""}${p.distance?" · "+esc(p.distance):""}`,{direction:"top",offset:[0,-22]});pts.push([p.lat,p.lng])}
+ if(d.me)pts.push([d.me.lat,d.me.lng]);if(pts.length>1)m.fitBounds(pts,{padding:[50,50],maxZoom:12});
+ if(!d.pins.length)el.insertAdjacentHTML("beforeend",`<div class="mempty">${live?"No live streams near you right now":"No one nearby has shared their location yet"}</div>`);setTimeout(()=>m.invalidateSize(),200)}
 function filterSheet(ctx){const f=S.filters;sheet(`<div class="shd"><button class="x" onclick="closePops()">✕</button><b>Filters</b><a class="lnk" onclick="S.filters={gender:'',min:18,max:99,dist:'any'};closePops();render()">Reset</a></div>
  <div class="pad fl"><label>Show me</label><div class="seg">${[["","Everyone"],["m","Men"],["f","Women"]].map(([v,t])=>`<b class="${f.gender==v?"on":""}" onclick="S.filters.gender='${v}';this.parentNode.querySelectorAll('b').forEach(x=>x.classList.remove('on'));this.classList.add('on')">${t}</b>`).join("")}</div>
  <label>Age <span id="agl">${f.min} – ${f.max}</span></label><div class="rng"><input type="range" min="18" max="99" value="${f.min}" id="amin" oninput="agu()"><input type="range" min="18" max="99" value="${f.max}" id="amax" oninput="agu()"></div>
- <label>Distance</label><div class="seg">${[["city","My city"],["any","Anywhere"]].map(([v,t])=>`<b class="${f.dist==v?"on":""}" onclick="S.filters.dist='${v}';this.parentNode.querySelectorAll('b').forEach(x=>x.classList.remove('on'));this.classList.add('on')">${t}</b>`).join("")}</div>
+ <label>Distance</label><div class="seg dseg">${[["city","My city"],["10","10"],["25","25"],["50","50"],["100","100"],["any","Any"]].map(([v,t])=>`<b class="${f.dist==v?"on":""}" onclick="S.filters.dist='${v}';this.parentNode.querySelectorAll('b').forEach(x=>x.classList.remove('on'));this.classList.add('on')">${t}</b>`).join("")}</div><small class="muted">Numbers are in ${unit()} (change units in Profile → Settings). ${S.me.has_location?"Using your approximate location (~2 km).":"Without location, distance falls back to your city."}</small>
+ ${S.me.has_location?`<button class="btn out full" onclick="locOff().then(()=>filterSheet())">📍 Location on · Turn off</button>`:`<button class="btn out full" onclick="askLocation().then(()=>filterSheet())">📍 Use my location</button>`}
  <button class="btn pri full" onclick="closePops();render()">Apply</button></div>`)}
 function agu(){let a=+$("#amin").value,b=+$("#amax").value;if(a>b)[a,b]=[b,a];S.filters.min=a;S.filters.max=b;$("#agl").textContent=a+" – "+b}
 
 // ---------------- Match ----------------
 const ICE=["What's your go-to karaoke song? 🎤","Beach or mountains? 🏖","Best taco in town? 🌮","What are you watching lately? 📺","Coffee or tea? ☕"];
 async function match(){setNav("match","Match");const r=await api("/api/meet/next?"+fq());S.meet=r.user;const u=r.user;
- V(`<div class="mw"><div class="mtop"><span class="muted">♥ ${fmt(r.stats.likes_me)} likes · 💞 ${fmt(r.stats.matches)} matches</span><span class="sp"></span><button class="ib" onclick="filterSheet('match')" title="Filters">⚙︎</button></div>
- ${u?`<div class="mcard" id="mcard">${cover(u)}<div class="mgrad"></div>${u.online?'<i class="od big"></i>':""}<div class="minfo"><b>${ageCity(u)}</b><small>📍 ${esc(u.city||"Somewhere")}</small>${u.bio?`<p>${esc(u.bio)}</p>`:""}<a class="lnk" href="#/u/${esc(u.username)}">View profile ›</a></div></div>
+ V(`<div class="mw"><div class="mtop"><span class="muted">♥ ${fmt(r.stats.likes_me)} likes · 💞 ${fmt(r.stats.matches)} matches · 📏 ${distTxt(S.filters.dist)}</span><span class="sp"></span><button class="ib" onclick="filterSheet('match')" title="Filters">⚙︎</button></div>
+ ${u?`<div class="mcard" id="mcard">${cover(u)}<div class="mgrad"></div>${u.online?'<i class="od big"></i>':""}<div class="minfo"><b>${ageCity(u)}</b><small>📍 ${esc(u.city||"Somewhere")}${u.distance?" · "+esc(u.distance)+" away":""}</small>${u.bio?`<p>${esc(u.bio)}</p>`:""}<a class="lnk" href="#/u/${esc(u.username)}">View profile ›</a></div></div>
  <div class="mbtns"><button class="mb no" onclick="vote(false)" title="Nope">✕</button><button class="mb ice" onclick="iceSheet()" title="Send an icebreaker">💬</button><button class="mb yes" onclick="vote(true)" title="Like">♥</button></div>`
  :`<div class="empty card"><div class="ei">🃏</div><b>You've seen everyone for now</b><p class="muted">Check back later or widen your filters.</p><button class="btn pri" onclick="filterSheet('match')">Change filters</button></div>`}</div>`);
  const c=$("#mcard");if(c){let x0=null;c.addEventListener("touchstart",e=>x0=e.touches[0].clientX,{passive:true});c.addEventListener("touchend",e=>{if(x0==null)return;const d=e.changedTouches[0].clientX-x0;if(Math.abs(d)>80)vote(d>0);x0=null})}}
@@ -305,7 +357,7 @@ const sw=(k,on)=>`<label class="sw"><input type="checkbox" ${on?"checked":""} on
 async function setSet(k,v){try{setMe(await api("/api/me/settings",{method:"PUT",body:{[k]:v}}));toast("Saved")}catch(e){toast(e.message)}}
 async function profile(){setNav("profile","Profile");setMe(await api("/api/me"));const m=S.me,s=m.settings;const fr=await api("/api/friends").catch(()=>({requests:[]}));S.freq=fr.requests.length;badges();
  V(`<div class="prw"><div class="prl"><div class="card pcard"><div class="pch">${av(m,96)}<div><h2>${nm(m)}${m.age?", "+m.age:""}</h2><small class="muted">@${esc(m.username)} · ${esc(m.city||"Add your city")}</small>
-  <div class="pbad">${lvlBadge(m.xp.n)}<i class="rkp">${esc(m.rank.label)}</i></div></div></div>
+  <div class="pbad">${lvlBadge(m.xp.n)}<i class="rkp">${esc(m.rank.label)}</i>${m.premium?'<i class="rkp prm">🚀 Premium</i>':""}</div></div></div>
   <div class="pcb"><button class="btn pri" onclick="editProfile()">✎ Edit</button><button class="btn out" onclick="go('#/u/${esc(m.username)}')">👁 Preview</button></div></div>
  <a class="card premc" href="#/premium"><b>🚀 ${APP_NAME} Premium</b><small>See who likes you, boost your profile & more</small><i>›</i></a>
  <div class="card"><a class="srow" href="#/gold"><span>🪙 Buy coins</span><b class="gold" data-coins>${fmt(m.coins)}</b>›</a><a class="srow" href="#/diamonds"><span>💎 Diamond Rewards</span><b class="dm" data-dia>${fmt(m.diamonds)}</b>›</a>
@@ -315,7 +367,7 @@ async function profile(){setNav("profile","Profile");setMe(await api("/api/me"))
   <div class="srow"><span>Hide me in Match</span>${sw("hide_in_match",s.hide_in_match)}</div>
   <div class="srow"><span>Who can contact me</span><select onchange="setSet('contact',this.value)"><option value="all" ${s.contact=="all"?"selected":""}>Everyone</option><option value="friends" ${s.contact=="friends"?"selected":""}>Friends & matches</option></select></div>
   <h4 class="pad">EMAIL NOTIFICATIONS</h4>${[["email_newsletter","Newsletter"],["email_friends","Friend requests"],["email_luv","Luv"],["email_pets","Pets"]].map(([k,t])=>`<div class="srow"><span>${t}</span>${sw(k,s[k])}</div>`).join("")}
-  <h4 class="pad">PREFERENCES</h4><div class="srow"><span>Language</span><select onchange="setSet('language',this.value)">${["English","Español","Français"].map(l=>`<option ${s.language==l?"selected":""}>${l}</option>`).join("")}</select></div>
+  <h4 class="pad">PREFERENCES</h4><div class="srow"><span>📍 Location<small>${m.has_location?"On · stored approximately (~2 km), never exact":"Off · distance uses your city"}</small></span>${m.has_location?`<button class="btn sm out" onclick="locOff()">Turn off</button>`:`<button class="btn sm pri" onclick="askLocation().then(profile)">Turn on</button>`}</div><div class="srow"><span>Language</span><select onchange="setSet('language',this.value)">${["English","Español","Français"].map(l=>`<option ${s.language==l?"selected":""}>${l}</option>`).join("")}</select></div>
   <div class="srow"><span>Distance units</span><div class="seg sm">${[["km","Km"],["mi","Miles"]].map(([v,t])=>`<b class="${s.units==v?"on":""}" onclick="setSet('units','${v}').then(profile)">${t}</b>`).join("")}</div></div>
   <a class="srow" onclick="info('support')"><span>❓ Help</span>›</a><a class="srow" onclick="info('privacy')"><span>🔒 Privacy</span>›</a><a class="srow red" onclick="logout()"><span>⏻ Logout</span></a></div></div></div>`)}
 function editProfile(){const m=S.me;sheet(`<div class="shd"><button class="x" onclick="closePops()">✕</button><b>Edit Profile</b><a class="lnk" onclick="saveProfile()">Save</a></div><div class="pad fl">
@@ -331,7 +383,7 @@ async function logout(){await api("/api/logout",{method:"POST"});sock?.disconnec
 async function userProfile(n){setNav("u","Profile");const u=await api("/api/users/"+encodeURIComponent(n));const self=u.username==S.me.username;
  const fb={none:["👥 Add Friend","pri","add"],sent:["⏳ Request Sent","out","del"],received:["✓ Accept Friend","pri","add"],friends:["✓ Friends","out","del"]}[u.friend||"none"];
  V(`<div class="card up"><div class="uph">${cover(u)}<div class="mgrad"></div>${u.live?`<button class="lbadge big" onclick="go('#/live/view/${u.stream_id}')">● LIVE — Watch</button>`:""}
- <div class="upi"><h2>${ageCity(u)} ${u.online?'<i class="od"></i>':""}</h2><small>📍 ${esc(u.city||"Somewhere")} · ${lvlBadge(u.level)} · ${esc(u.rank)}</small></div></div>
+ <div class="upi"><h2>${ageCity(u)} ${u.online?'<i class="od"></i>':""}</h2><small>📍 ${esc(u.city||"Somewhere")}${u.distance?" · "+esc(u.distance):""} · ${u.premium?"🚀 · ":""}${lvlBadge(u.level)} · ${esc(u.rank)}</small></div></div>
  <div class="ups"><div><b>${fmt(u.followers)}</b><small>Fans</small></div><div><b>${fmt(u.following)}</b><small>Favorites</small></div><div><b>💎 ${fmt(u.received)}</b><small>Diamonds</small></div></div>
  ${self?`<div class="upb"><button class="btn pri" onclick="go('#/profile')">Back to my profile</button></div>`:`<div class="upb"><button class="btn pri" onclick="go('#/chats/${esc(u.username)}')">💬 Message</button>
   <button class="btn ${fb[1]}" onclick="friendAct('${esc(u.username)}','${fb[2]}')">${fb[0]}</button><button class="btn out" onclick="luvSend('${esc(u.username)}')" ${u.luv_today?"disabled":""}>💙 ${u.luv_today?"Luv sent":"Send Luv"}</button>
@@ -377,9 +429,10 @@ async function diamonds(){setNav("diamonds","Diamond Rewards");setMe(await api("
  <button class="paybtn" ${d>=CASHOUT_MIN_DIAMONDS?"":"disabled"} onclick="payout()">Claim Cash Reward</button><p class="muted">Creates a pending payout request — reviewed and paid manually.</p>
  <h4>PAYOUT HISTORY</h4>${po.length?po.map(p=>`<div class="srow"><span>💎 ${fmt(p.diamonds)} → $${(+p.usd).toFixed(2)}<small>${esc(p.created_at)}</small></span><b>${esc(p.status)}</b></div>`).join(""):'<p class="muted">No payouts yet.</p>'}</div></div>`)}
 async function payout(){if(!confirm(`Request a payout of $${(S.diamonds/DIAMONDS_PER_USD).toFixed(2)}?`))return;try{const r=await api("/api/payouts",{method:"POST"});setMe(r.me);toast("Payout requested (pending)");diamonds()}catch(e){toast(e.message)}}
-function premium(){setNav("premium","Premium");V(`<div class="card prem"><div class="phero"><h1>🚀 ${APP_NAME} Premium</h1><p>Stand out and meet more people.</p></div>
- <div class="pad">${[["👁","See who viewed you","Full list of profile views, anytime"],["♥","See who likes you","Know who liked you before you vote"],["🚀","Profile boost","Be seen first in Discover & Match"],["🎁","VIP gifts","Unlock VIP-only gifts in live streams"],["✓","Read receipts","Know when messages are read"]].map(([i,t,s])=>`<div class="srow"><span><i class="pi">${i}</i>${t}<small>${s}</small></span></div>`).join("")}
- <button class="paybtn" onclick="toast('Premium is coming soon!')">Coming soon</button></div></div>`)}
+function premium(){setNav("premium","Premium");const on=S.me.premium;V(`<div class="card prem"><div class="phero"><h1>🚀 ${APP_NAME} Premium</h1><p>${on?`Active until ${new Date(S.me.premium_until.replace(" ","T")+"Z").toLocaleDateString()}`:"Stand out and meet more people."}</p></div>
+ <div class="pad">${[["👁","See who viewed you","Full list of profile views, anytime"],["♥","See who likes you","Know who liked you before you vote"],["🚀","Profile boost","Shown first in Discover & Match"],["🎁","VIP gifts","Unlock VIP-only gifts in live streams"],["🏅","Premium badge","A 🚀 badge on your profile and tiles"]].map(([i,t,s])=>`<div class="srow"><span><i class="pi">${i}</i>${t}<small>${s}</small></span></div>`).join("")}
+ <button class="paybtn" onclick="buyPremium()">${on?"Add 30 more days":"Get Premium"} — $${S.cfg.premium_usd||9.99}</button><p class="muted">30 days of Premium, one-time payment, no auto-renew. Secure checkout by Stripe.${S.cfg.stripe_test?" (Test mode — use card 4242 4242 4242 4242.)":""}</p></div></div>`)}
+async function buyPremium(){if(!S.cfg.payments)return toast("Payments not connected yet");try{location.href=(await api("/api/checkout/premium",{method:"POST"})).url}catch(e){toast(e.message)}}
 
 // ---------------- Gate (signup/login) ----------------
 function gate(){$("#shell")?.remove();const su=(S.auth||"signup")=="signup";document.body.classList.remove("immersive");
@@ -408,5 +461,5 @@ async function prepImage(file,max=1080,q=.85){
 // ---------------- boot ----------------
 addEventListener("resize",()=>{if(S.route=="live")drawLive()});
 (async()=>{S.cfg=await api("/api/config").catch(()=>({}));setMe(await api("/api/me").catch(()=>null));
- const q=new URLSearchParams(location.search);if(q.has("paid")){setTimeout(()=>toast(q.get("paid")=="1"?"Payment received — coins arrive in a moment":"Payment cancelled"),300);history.replaceState(0,"","/#/gold")}
+ const q=new URLSearchParams(location.search);if(q.has("paid")){const pd=q.get("paid");setTimeout(()=>toast(pd=="1"?"Payment received — coins arrive in a moment":pd=="premium"?"Payment received — Premium activates in a moment":"Payment cancelled"),300);history.replaceState(0,"",pd=="premium"?"/#/premium":"/#/gold")}
  if(S.me){connect();api("/api/activity").then(a=>{S.act=a.unread;badges()}).catch(()=>{});api("/api/friends").then(r=>{S.freq=r.requests.length;badges()}).catch(()=>{});render()}else gate()})();
