@@ -1,7 +1,7 @@
 # Tap.in — live streaming app (Node + Express + SQLite + Socket.IO + WebRTC)
 
 The existing front end (`index.html`, `css/`, `js/app.js`, `img/`) is served by `server.js`.
-Gift list (152 `GIFTS`), the 50% streamer share, coin packs and cash-out rules (60,000 💎 min, 200 💎 = $1)
+Gift list (152 `GIFTS`), the 50% streamer share, coin packs and cash-out rules (40,000 💎 = $200 min, 200 💎 = $1, flat `PAYOUT_FEE_USD` = $1.00 fee per cash-out)
 live in `js/app.js` and the server **reads them from that file**, so the client and server always agree.
 
 ## Run locally
@@ -34,7 +34,7 @@ Data (SQLite DB, sessions, avatar uploads, session secret) lives in `data/` (or 
    Locally: `stripe listen --forward-to localhost:41209/api/stripe/webhook`.
 3. Coins are credited **only** by the webhook (idempotent per Checkout session).
 
-Cash-out (`POST /api/payouts`) creates a `pending` row in `payouts` and deducts the diamonds. No money is sent; pay out manually and update the row.
+Cash-out (`POST /api/payouts`) creates a `pending` row in `payouts` and deducts all the diamonds. The row stores `gross_usd` (diamonds ÷ 200), `fee_usd` (flat $1.00, `PAYOUT_FEE_USD` in `js/app.js`) and `net_usd` (gross − fee); `usd` keeps the gross for older rows. The Admin page lists requests with the **net** amount to send by PayPal (e.g. 40,000 💎 → $200 gross, $1 fee, send $199). No money is sent; pay out manually and update the row.
 
 ## Video
 WebRTC mesh: the streamer's browser opens one peer connection per viewer (fine for ~5–20 viewers), Socket.IO relays signaling, STUN `stun.l.google.com:19302`.

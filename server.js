@@ -25,7 +25,7 @@ const appjs=fs.readFileSync(path.join(__dirname,'js/app.js'),'utf8');
 const GIFTS=JSON.parse(appjs.match(/const GIFTS=(\[.*?\]\]);/s)[1]);
 const COIN_PACKAGES=JSON.parse(appjs.match(/const COIN_PACKAGES=(\[.*?\]);/)[1].replace(/(\w+):/g,'"$1":'));
 const num=n=>+appjs.match(new RegExp(`const ${n}=([\\d.]+)`))[1];
-const DIAMONDS_PER_USD=num('DIAMONDS_PER_USD'),CASHOUT_MIN=num('CASHOUT_MIN_DIAMONDS'),SHARE=num('STREAMER_SHARE');
+const DIAMONDS_PER_USD=num('DIAMONDS_PER_USD'),CASHOUT_MIN=num('CASHOUT_MIN_DIAMONDS'),SHARE=num('STREAMER_SHARE'),PAYOUT_FEE=num('PAYOUT_FEE_USD');
 const giftDiamonds=c=>Math.max(1,Math.floor(c*SHARE));
 const START_COINS=+(process.env.START_COINS??500);
 
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS pw_resets(token_hash TEXT PRIMARY KEY,user_id INTEGER
 CREATE TABLE IF NOT EXISTS coin_grants(id INTEGER PRIMARY KEY,admin_id INTEGER NOT NULL,user_id INTEGER NOT NULL,username TEXT NOT NULL,amount INTEGER NOT NULL,note TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS pet_log(id INTEGER PRIMARY KEY,pet INTEGER,buyer INTEGER,seller INTEGER,price INTEGER,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
-addCol('payouts','paypal',"TEXT DEFAULT ''");addCol('users','terms_at','TEXT');
+addCol('payouts','paypal',"TEXT DEFAULT ''");addCol('payouts','gross_usd','REAL');addCol('payouts','fee_usd','REAL');addCol('payouts','net_usd','REAL');addCol('users','terms_at','TEXT');
 db.pragma(`user_version=${SCHEMA_VERSION}`);
 db.prepare("UPDATE streams SET ended_at=CURRENT_TIMESTAMP WHERE ended_at IS NULL").run(); // nothing is live after restart
 
@@ -244,9 +244,10 @@ app.post('/api/me/location',limiter(30,60e3),auth,(req,res)=>{const lat=+req.bod
 app.delete('/api/me/location',auth,(req,res)=>{db.prepare('UPDATE users SET lat=NULL,lng=NULL WHERE id=?').run(req.user.id);res.json(me(getUser(req.user.id)))});
 app.post('/api/payouts',moneyLimit,auth,(req,res)=>{const paypal=String(req.body?.paypal||'').trim();if(!/^\S+@\S+\.\S+$/.test(paypal)||paypal.length>254)return res.status(400).json({error:'Enter the PayPal email to pay you at'});try{const r=db.transaction(()=>{const u=getUser(req.user.id);if(u.diamonds<CASHOUT_MIN)throw new Error(`Minimum ${CASHOUT_MIN} diamonds`);
     db.prepare('UPDATE users SET diamonds=0 WHERE id=?').run(u.id);
-    return db.prepare('INSERT INTO payouts(user_id,diamonds,usd,paypal) VALUES(?,?,?,?)').run(u.id,u.diamonds,Math.floor(u.diamonds/DIAMONDS_PER_USD*100)/100,paypal)})();
+    const gross=Math.floor(u.diamonds/DIAMONDS_PER_USD*100)/100,net=Math.round((gross-PAYOUT_FEE)*100)/100;if(net<=0)throw new Error('Payout too small after fee');
+    return db.prepare('INSERT INTO payouts(user_id,diamonds,usd,gross_usd,fee_usd,net_usd,paypal) VALUES(?,?,?,?,?,?,?)').run(u.id,u.diamonds,gross,gross,PAYOUT_FEE,net,paypal)})();
   res.json({payout:db.prepare('SELECT * FROM payouts WHERE id=?').get(r.lastInsertRowid),me:me(getUser(req.user.id))})}catch(e){res.status(400).json({error:e.message})}});
-app.get('/api/payouts',auth,(req,res)=>res.json(db.prepare('SELECT id,diamonds,usd,status,paypal,created_at FROM payouts WHERE user_id=? ORDER BY id DESC').all(req.user.id)));
+app.get('/api/payouts',auth,(req,res)=>res.json(db.prepare('SELECT id,diamonds,usd,gross_usd,fee_usd,net_usd,status,paypal,created_at FROM payouts WHERE user_id=? ORDER BY id DESC').all(req.user.id)));
 
 // ---- Near you / Meet Me / Chats ----
 const pair=(x,y)=>x<y?[x,y]:[y,x];
@@ -350,6 +351,7 @@ app.post('/api/admin/grant',limiter(30,60e3),adminOnly,(req,res)=>{const{usernam
     const g=db.prepare('INSERT INTO coin_grants(admin_id,user_id,username,amount,note) VALUES(?,?,?,?,?)').run(req.user.id,u.id,u.username,amount,(note||'').trim()||null);
     return {grant_id:Number(g.lastInsertRowid),user:grantView(getUser(u.id))}})();
   console.log(`COIN GRANT #${r.grant_id}: ${amount} to #${u.id} by #${req.user.id}`);pushBalance(u.id);res.json(r)});
+app.get('/api/admin/payouts',adminOnly,(req,res)=>res.json(db.prepare('SELECT p.id,p.user_id,u.username,p.diamonds,p.usd,p.gross_usd,p.fee_usd,p.net_usd,p.status,p.paypal,p.created_at FROM payouts p LEFT JOIN users u ON u.id=p.user_id ORDER BY p.id DESC LIMIT 100').all()));
 app.get('/admin',(req,res)=>res.redirect('/#/admin'));
 // ---- Reports (stored for review; reporter also auto-blocks if asked) ----
 const REASONS=['nudity','harassment','underage','spam','scam','violence','hate','other'];

@@ -66,8 +66,8 @@ const admin=(p,b)=>fetch(URL+'api/admin-tmp/'+p,{method:b?'POST':'GET',headers:{
  const txt=await V.evaluate(()=>document.body.innerText);ok(true,'');
  await V.goto(URL+'#/gold');const prices=await V.evaluate(()=>COIN_PACKAGES.map(p=>p.c+'='+p.p).join(','));ok(prices==='100=0.99,550=4.99,1200=9.99,2500=19.99,6500=49.99,14000=99.99','coin packs '+prices);
  // payouts recorded
- if(AT){await admin('grant',{username:hu,field:'diamonds',amount:60000});H._prompt='hana@example.com';await H.goto(URL+'#/diamonds');await H.waitForSelector('.paybtn:not([disabled])');await H.click('.paybtn');await H.waitForSelector('.toast:has-text("Payout requested")');
-  const pk=await admin('peek?username='+hu);ok(pk.diamonds===0&&pk.payouts.length===1&&pk.payouts[0].status==='pending'&&pk.payouts[0].paypal==='hana@example.com'&&pk.payouts[0].usd>=250,'cash-out recorded: '+JSON.stringify(pk.payouts[0]));await shot(H,'cashout_recorded');
+ if(AT){await admin('grant',{username:hu,field:'diamonds',amount:40000});H._prompt='hana@example.com';await H.goto(URL+'#/diamonds');await H.waitForSelector('.paybtn:not([disabled])');await H.click('.paybtn');await H.waitForSelector('.toast:has-text("Payout requested")');
+  const pk=await admin('peek?username='+hu);ok(pk.diamonds===0&&pk.payouts.length===1&&pk.payouts[0].status==='pending'&&pk.payouts[0].paypal==='hana@example.com'&&pk.payouts[0].gross_usd===200&&pk.payouts[0].fee_usd===1&&pk.payouts[0].net_usd===199,'cash-out recorded: '+JSON.stringify(pk.payouts[0]));await shot(H,'cashout_recorded');
   const again=await H.evaluate(()=>api('/api/payouts',{method:'POST',body:{paypal:'hana@example.com'}}).then(()=>'ok',e=>e.message));ok(/Minimum/.test(again),'second cash-out refused (no double payout)')}
  // Stripe TEST coin purchase
  if(process.env.STRIPE){const cBefore=await V.evaluate(()=>api('/api/me').then(m=>m.coins));await V.goto(URL+'#/gold');await V.evaluate(()=>{S.pack=0;gold()});await V.click('.paybtn');await V.waitForURL(/checkout\.stripe\.com/,{timeout:30000});await V.waitForTimeout(3000);

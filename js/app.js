@@ -1,7 +1,9 @@
 // ===== Config constants (edit to change branding/pricing) =====
 const APP_NAME="Tap.in";
 const DIAMONDS_PER_USD=200;          // rate: 200 diamonds = $1
-const CASHOUT_MIN_DIAMONDS=60000;    // = $300
+const CASHOUT_MIN_DIAMONDS=40000;    // = $200
+const PAYOUT_FEE_USD=1.00;           // flat fee per cash-out (diamonds deducted unchanged; streamer receives gross minus this)
+const payoutGross=d=>Math.floor(d/DIAMONDS_PER_USD*100)/100,payoutNet=d=>Math.max(0,Math.round((payoutGross(d)-PAYOUT_FEE_USD)*100)/100),usd2=n=>(+n).toFixed(2),fmtN=n=>n.toLocaleString("en-US");
 const STREAMER_SHARE=0.5;            // streamer earns diamonds = 50% of gift coin price
 const giftDiamonds=c=>Math.max(1,Math.floor(c*STREAMER_SHARE));
 const COIN_PACKAGES=[{c:100,p:0.99},{c:550,p:4.99},{c:1200,p:9.99},{c:2500,p:19.99},{c:6500,p:49.99},{c:14000,p:99.99}];
@@ -65,12 +67,12 @@ function morePop(ev){ev.stopPropagation();popAt(ev,`<div class="pm">
  ${isPhone()?`<a href="#/pets">🐾 Pets</a><a href="#/luv">💙 Luv</a><a href="#/profile">👤 Profile</a><a href="#/gold">🪙 Buy Coins</a><a href="#/diamonds">💎 Diamond Rewards</a><a href="#/premium">🚀 Premium</a><hr>`:""}
  ${S.me?.admin?'<a href="#/admin">🛠 Admin</a>':""}<a onclick="info('support')">Support</a><a onclick="info('health')">Consumer Health Data Privacy Policy</a><a onclick="info('dns')">Do Not Sell or Share My Personal Information</a>
  <a onclick="info('privacy')">Privacy Policy</a><a onclick="info('legal')">Legal Notice</a><small>© ${APP_NAME} 2026. All rights reserved.</small></div>`)}
-const INFO={support:["Support","Need help? Email support@tap.in or use Send Feedback in Live → Streamer tools. We reply within 48 hours."],health:["Consumer Health Data Privacy Policy",`${APP_NAME} does not collect consumer health data.`],
+const INFO={support:["Support","Need help? Email support@tap.in or use Send Feedback in Live → Streamer tools. We reply within 48 hours. Cash-outs: 200 💎 = $1, minimum "+fmtN(CASHOUT_MIN_DIAMONDS)+" 💎 ($"+CASHOUT_MIN_DIAMONDS/DIAMONDS_PER_USD+"), flat $"+PAYOUT_FEE_USD.toFixed(2)+" fee per cash-out, paid by PayPal."],health:["Consumer Health Data Privacy Policy",`${APP_NAME} does not collect consumer health data.`],
  dns:["Do Not Sell or Share My Personal Information",`${APP_NAME} does not sell or share your personal information for advertising. There are no ads on ${APP_NAME}.`],
  privacy:["Privacy Policy","We store your account, profile, messages and stream activity to run the service. Payments are processed by Stripe; we never see your card."],
  legal:["Legal Notice",`${APP_NAME} — live streaming & social. You must be 18+. Nudity or obscene behavior results in account deletion.`],
- partner:["Partner Policy","Streamers earn 50% of every gift as diamonds. 200 diamonds = $1. Cash out from 60,000 diamonds ($300). Payouts are reviewed manually."],
- terms:["Terms of Service",`By using ${APP_NAME} you agree to be 18+, to follow community rules, and that virtual coins have no cash value.`]};
+ partner:["Partner Policy","Streamers earn 50% of every gift as diamonds. 200 diamonds = $1. Cash out from "+fmtN(CASHOUT_MIN_DIAMONDS)+" diamonds ($"+CASHOUT_MIN_DIAMONDS/DIAMONDS_PER_USD+"). A flat $"+PAYOUT_FEE_USD.toFixed(2)+" fee is taken from every cash-out (e.g. $"+CASHOUT_MIN_DIAMONDS/DIAMONDS_PER_USD+" → you receive $"+payoutNet(CASHOUT_MIN_DIAMONDS).toFixed(2)+"). Payouts are reviewed manually and sent by PayPal."],
+ terms:["Terms of Service",`By using ${APP_NAME} you agree to be 18+, to follow community rules, and that virtual coins have no cash value. Streamer cash-outs carry a flat $${PAYOUT_FEE_USD.toFixed(2)} fee per request, deducted from the payout (the diamonds deducted are unchanged).`]};
 function info(k){const[t,b]=INFO[k];sheet(`<div class="shd"><b>${t}</b><button class="x" onclick="closePops()">✕</button></div><p class="pad">${b}</p>`)}
 async function actPop(ev){ev.stopPropagation();const d=popAt(ev,`<div class="act"><h3>Activity</h3><div class="muted pad">Loading…</div></div>`,"actpop");
  try{const a=await api("/api/activity");const L=[];
@@ -179,7 +181,7 @@ function drawLive(){const all=S.streams,favs=all.filter(s=>s.following);const el
  <aside class="card ann"><h4>ANNOUNCEMENTS</h4><div class="anl">${annos()}</div></aside></div>`}
 const annos=()=>[["#/gold","linear-gradient(135deg,#0b3d91,#1e90ff)","NEW!","BUY WITH COINS!","Send gifts your favorite streamers love"],
  ["#/live/tools/gifters","linear-gradient(135deg,#3a2a00,#c99400 60%,#ffc83d)","WEEKLY","TOP GIFTERS","See this week's biggest supporters"],
- ["#/diamonds","linear-gradient(135deg,#001b3d,#0066cc 60%,#00c6ff)","CREATORS","CASH OUT DIAMONDS","60,000 💎 = $300 · 200 💎 = $1"],
+ ["#/diamonds","linear-gradient(135deg,#001b3d,#0066cc 60%,#00c6ff)","CREATORS","CASH OUT DIAMONDS",`${fmtN(CASHOUT_MIN_DIAMONDS)} 💎 = $${CASHOUT_MIN_DIAMONDS/DIAMONDS_PER_USD} · $${PAYOUT_FEE_USD} fee per cash-out`],
  ["#/golive","linear-gradient(135deg,#141821,#0047ff)","APPLY","BE A FEATURED CREATOR!","Go live 3× this week to get featured"]]
  .map(([h,bg,k,t,s])=>`<a class="anb" href="${h}" style="background:${bg}"><small>${k}</small><b>${t}</b><span>${s}</span><i>LEARN MORE</i></a>`).join("");
 function shareLive(){const u=location.origin+"/#/live";(navigator.share?navigator.share({title:APP_NAME+" Live",url:u}):navigator.clipboard.writeText(u).then(()=>toast("Link copied"))).catch(()=>toast("Link: "+u))}
@@ -477,13 +479,14 @@ async function luv(){setNav("luv","Luv");const l=await api("/api/luv");
 // ---------------- Admin: credit coins (server allows user #13 only) ----------------
 const ADM_PACKS=[100,550,1200,2500,6500,14000];
 async function admin(){setNav("admin","Admin");if(!S.me?.admin){V('<div class="empty"><div class="ei">🔒</div><b>Admins only</b></div>');return}
- const gs=await api("/api/admin/grants");const u=S.adm;
+ const [gs,po]=await Promise.all([api("/api/admin/grants"),api("/api/admin/payouts").catch(()=>[])]);const u=S.adm;
  V(`<div class="card adm pad"><h2>🛠 Credit coins</h2>
  <form class="admf" onsubmit="event.preventDefault();admFind(this.q.value)"><input name="q" placeholder="Username" value="${esc(u?.username||"")}" autocapitalize="off" autocomplete="off"><button class="btn pri">Search</button></form>
  ${u?`<div class="admu"><b>@${esc(u.username)}</b> <small>#${u.id} · ${esc(u.display_name)}</small><div class="bal">🪙 <b>${fmt(u.coins)}</b> coins now</div></div>
  <div class="admp">${ADM_PACKS.map(c=>`<button class="pill gold" onclick="admGrant(${c})">+${fmt(c)}</button>`).join("")}</div>
  <div class="admf"><input id="admAmt" type="number" min="1" max="100000" step="1" placeholder="Custom amount"><button class="btn" onclick="admGrant(+$('#admAmt').value)">Add</button></div>
  <input id="admNote" maxlength="200" placeholder="Note (optional), e.g. Cash App $9.99" style="width:100%">`:'<p class="muted">Search a username to credit coins.</p>'}
+ <h4>PAYOUT REQUESTS (send NET by PayPal)</h4>${po.length?po.map(p=>`<div class="srow"><span>💸 Send <b class="gold">$${usd2(p.net_usd??p.usd)}</b> → ${esc(p.paypal||"?")}<small>#${p.id} · @${esc(p.username||"?")} · 💎 ${fmt(p.diamonds)} · gross $${usd2(p.gross_usd??p.usd)} − fee $${usd2(p.fee_usd??0)} · ${esc(p.created_at)} UTC</small></span><b>${esc(p.status)}</b></div>`).join(""):'<p class="muted">No payout requests.</p>'}
  <h4>LAST 50 GRANTS</h4>${gs.length?gs.map(g=>`<div class="srow"><span>🪙 +${fmt(g.amount)} → @${esc(g.username)}<small>${esc(g.created_at)} UTC · by @${esc(g.admin||"?")}${g.note?" · "+esc(g.note):""}</small></span></div>`).join(""):'<p class="muted">No grants yet.</p>'}</div>`)}
 async function admFind(q){try{S.adm=await api("/api/admin/user?username="+encodeURIComponent(q.trim()));admin()}catch(e){toast(e.message)}}
 async function admGrant(n){const u=S.adm;if(!u)return;if(!Number.isInteger(n)||n<1||n>100000)return toast("Amount must be 1 to 100,000");const note=($("#admNote")?.value||"").trim();
@@ -512,9 +515,11 @@ async function diamonds(){setNav("diamonds","Diamond Rewards");setMe(await api("
  V(`<div class="card store"><div class="sth"><h2>Diamond Rewards</h2><span class="bal dm">💎 <b data-dia>${fmt(d)}</b></span></div>
  <div class="pad"><p>Worth <b class="gold">$${(d/DIAMONDS_PER_USD).toFixed(2)}</b> · ${DIAMONDS_PER_USD} 💎 = $1 · Cash out at ${fmt(CASHOUT_MIN_DIAMONDS)} 💎 ($${CASHOUT_MIN_DIAMONDS/DIAMONDS_PER_USD})</p>
  <div class="bar green"><i style="width:${pct}%"></i></div><small class="muted">${d>=CASHOUT_MIN_DIAMONDS?"You can cash out now!":fmt(CASHOUT_MIN_DIAMONDS-d)+" more 💎 to cash out"}</small>
- <button class="paybtn" ${d>=CASHOUT_MIN_DIAMONDS?"":"disabled"} onclick="payout()">Claim Cash Reward</button><p class="muted">Creates a pending payout request — reviewed and paid manually.</p>
- <h4>PAYOUT HISTORY</h4>${po.length?po.map(p=>`<div class="srow"><span>💎 ${fmt(p.diamonds)} → $${(+p.usd).toFixed(2)}<small>${esc(p.created_at)}</small></span><b>${esc(p.status)}</b></div>`).join(""):'<p class="muted">No payouts yet.</p>'}</div></div>`)}
-async function payout(){const pp=prompt(`Cash out $${(Math.floor(S.diamonds/DIAMONDS_PER_USD*100)/100).toFixed(2)} (${fmt(S.diamonds)} 💎).\nPayPal email to pay you at:`);if(pp==null)return;try{const r=await api("/api/payouts",{method:"POST",body:{paypal:pp.trim()}});setMe(r.me);toast("Payout requested (pending)");diamonds()}catch(e){toast(e.message)}}
+ <div class="srow fee"><span>Cash-out value<small>${fmt(d)} 💎</small></span><b>$${usd2(payoutGross(d))}</b></div><div class="srow fee"><span>Fee <small>flat, per cash-out</small></span><b>−$${usd2(PAYOUT_FEE_USD)}</b></div><div class="srow fee"><span><b>You receive</b><small>by PayPal</small></span><b class="gold">$${usd2(payoutNet(d))}</b></div>
+ <p class="muted" data-fee>Fee $${usd2(PAYOUT_FEE_USD)} · You receive $${usd2(payoutNet(d))}</p>
+ <button class="paybtn" ${d>=CASHOUT_MIN_DIAMONDS?"":"disabled"} onclick="payout()">Claim Cash Reward</button><p class="muted">Creates a pending payout request — reviewed and paid manually by PayPal. A flat $${usd2(PAYOUT_FEE_USD)} fee is deducted from every cash-out.</p>
+ <h4>PAYOUT HISTORY</h4>${po.length?po.map(p=>`<div class="srow"><span>💎 ${fmt(p.diamonds)} → $${usd2(p.net_usd??p.usd)}<small>${p.fee_usd!=null?`$${usd2(p.gross_usd??p.usd)} − $${usd2(p.fee_usd)} fee · `:""}${esc(p.created_at)}</small></span><b>${esc(p.status)}</b></div>`).join(""):'<p class="muted">No payouts yet.</p>'}</div></div>`)}
+async function payout(){const pp=prompt(`Cash out $${usd2(payoutGross(S.diamonds))} (${fmt(S.diamonds)} 💎).\nFee $${usd2(PAYOUT_FEE_USD)} · You receive $${usd2(payoutNet(S.diamonds))}\nPayPal email to pay you at:`);if(pp==null)return;try{const r=await api("/api/payouts",{method:"POST",body:{paypal:pp.trim()}});setMe(r.me);toast("Payout requested (pending)");diamonds()}catch(e){toast(e.message)}}
 function premium(){setNav("premium","Premium");const on=S.me.premium;V(`<div class="card prem"><div class="phero"><h1>🚀 ${APP_NAME} Premium</h1><p>${on?`Active until ${new Date(S.me.premium_until.replace(" ","T")+"Z").toLocaleDateString()}`:"Stand out and meet more people."}</p></div>
  <div class="pad">${[["👁","See who viewed you","Full list of profile views, anytime"],["♥","See who likes you","Know who liked you before you vote"],["🚀","Profile boost","Shown first in Discover & Match"],["🎁","VIP gifts","Unlock VIP-only gifts in live streams"],["🏅","Premium badge","A 🚀 badge on your profile and tiles"]].map(([i,t,s])=>`<div class="srow"><span><i class="pi">${i}</i>${t}<small>${s}</small></span></div>`).join("")}
  ${S.cfg.stripe_live?`<button class="paybtn" onclick="buyPremium()">${on?"Add 30 more days":"Get Premium"} — $${S.cfg.premium_usd||9.99}</button>`:""}${S.cfg.paypal?`<div class="ppbox"><div class="ppsum">${on?"Add 30 more days":"Get Premium"} — <b>$${S.cfg.premium_usd||9.99}</b></div><div id="ppbtn"></div></div>`:""}<p class="muted">30 days of Premium, one-time payment, no auto-renew. ${S.cfg.paypal?"Pay with PayPal or a debit/credit card, processed securely by PayPal.":S.cfg.stripe_live?"Secure checkout by Stripe.":"(Payments not connected yet.)"}</p></div></div>`);ppButtons({kind:"premium"})}

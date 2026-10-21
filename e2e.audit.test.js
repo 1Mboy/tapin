@@ -22,7 +22,7 @@ const admin=(p,b)=>fetch(URL+'/api/admin-tmp/'+p,{method:b?'POST':'GET',headers:
  const xss='<img src=x onerror=alert(1)><script>alert(2)</script>';
  r=await A('/api/me',{method:'PUT',body:{display_name:xss,bio:xss,coins:99999,diamonds:99999,username:'Moneymike',id:13}});ok(r.s===200&&r.j.coins<=500&&r.j.diamonds===0&&r.j.username===ua,'PUT /api/me cannot change coins, diamonds, username or id');
  r=await A('/api/me/settings',{method:'PUT',body:{coins:5,premium_until:'2099-01-01'}});ok(!r.j.premium,'settings cannot grant Premium');
- r=await A('/api/payouts',{method:'POST',body:{paypal:'a@b.co'}});ok(r.s===400&&/Minimum/.test(r.j.error),'cash-out refused below 60,000 diamonds');
+ r=await A('/api/payouts',{method:'POST',body:{paypal:'a@b.co'}});ok(r.s===400&&/Minimum/.test(r.j.error),'cash-out refused below 40,000 diamonds');
  r=await A('/api/report',{method:'POST',body:{username:ub,reason:'spam',details:xss}});ok(r.s===200,'report recorded');
  r=await A('/api/report',{method:'POST',body:{username:ub,reason:'bogus'}});ok(r.s===400,'report with invalid reason refused');
  r=await A('/api/me/password',{method:'POST',body:{current:'wrongpass1',next:'newsecret1'}});ok(r.s===403,'password change needs current password');
