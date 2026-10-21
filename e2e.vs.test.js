@@ -29,7 +29,7 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  const s1=await golive(H1,'Ava live'),s2=await golive(H2,'Gus live');ok(s1&&s2,`two hosts live #${s1} #${s2}`);
  await watch(V1,s1);await watch(V2,s2);ok(true,'each viewer watching their own host');
  // ---- VS button + picker ----
- const vsx=await H1.evaluate(()=>{const b=document.querySelector('.lx-bar').firstElementChild;return{id:b.id,txt:b.textContent}});ok(vsx.id=='vsb'&&vsx.txt=='VS','VS button is the far-left control on the host bar');
+ const vsx=await H1.evaluate(()=>[...document.querySelector('#tbar').children].map(b=>b.id));ok(vsx[1]=='vsb'&&vsx[0]=='tipb','VS is the 2nd icon on the Tagged host bar (after tips lightbulb)');
  ok(!(await V1.$('#vsb')),'viewers do not get a VS button');
  await H1.tap('#vsb');await H1.waitForSelector(`.vsrow:has-text("Gus Gold") .btn.pri`);ok(true,'VS picker lists the other live host');
  ok(await H1.$('#vsrand'),'picker offers Random match');await shot(H1,'01_vs_picker');
