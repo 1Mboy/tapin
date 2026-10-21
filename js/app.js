@@ -489,11 +489,24 @@ async function admFind(q){try{S.adm=await api("/api/admin/user?username="+encode
 async function admGrant(n){const u=S.adm;if(!u)return;if(!Number.isInteger(n)||n<1||n>100000)return toast("Amount must be 1 to 100,000");const note=($("#admNote")?.value||"").trim();
  if(!confirm(`Add ${fmt(n)} coins to @${u.username}?${note?"\nNote: "+note:""}`))return;
  try{const r=await api("/api/admin/grant",{method:"POST",body:{username:u.username,amount:n,note,confirm:true}});S.adm=r.user;toast(`Added ${fmt(n)} coins to @${u.username}`);admin()}catch(e){toast(e.message)}}
+// ---------------- PayPal buttons (shown when the server has PayPal keys) ----------------
+let ppLoad=null;
+function ppSdk(){if(window.paypal)return Promise.resolve(window.paypal);if(ppLoad)return ppLoad;
+ ppLoad=new Promise((ok,no)=>{const sc=document.createElement("script");sc.src=`https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(S.cfg.paypal.client_id)}&currency=USD&intent=capture&components=buttons&enable-funding=card`;
+  sc.onload=()=>ok(window.paypal);sc.onerror=()=>{ppLoad=null;no(new Error("Couldn't load PayPal. Check your connection."))};document.head.append(sc)});return ppLoad}
+async function ppButtons(item){if(!S.cfg.paypal)return;const box=$("#ppbtn");if(!box)return;
+ try{const pp=await ppSdk();if(!box.isConnected)return;box.innerHTML="";
+  await pp.Buttons({style:{layout:"vertical",color:"gold",shape:"pill",label:"pay"},
+   createOrder:async()=>(await api("/api/paypal/order",{method:"POST",body:item})).id,
+   onApprove:async d=>{try{const r=await api("/api/paypal/capture",{method:"POST",body:{orderID:d.orderID}});setMe(r.me);$$("[data-coins]").forEach(e=>e.textContent=fmt(S.coins));
+     toast(r.kind=="premium"?"🚀 Premium activated!":`🪙 ${fmt(r.coins)} coins added!`);render()}catch(e){toast(e.message)}},
+   onCancel:()=>toast("Payment cancelled"),onError:e=>{console.error(e);toast("PayPal couldn't complete the payment. Please try again.")}}).render(box)}catch(e){toast(e.message)}}
 // ---------------- Gold store / Diamonds / Premium ----------------
 const BONUS=[null,"+10%","+20%","+25%","+30%","+40%"];
 function gold(){setNav("gold","Coins");S.pack=S.pack??2;V(`<div class="card store"><div class="sth"><h2>Refill Coins</h2><span class="bal">🪙 <b data-coins>${fmt(S.coins)}</b></span></div>
  <div class="packs">${COIN_PACKAGES.map((p,i)=>`<label class="pk2 ${i==S.pack?"on":""}"><input type="radio" name="pk" ${i==S.pack?"checked":""} onchange="S.pack=${i};gold()"><i class="rad"></i><b>🪙 ${fmt(p.c)}</b>${BONUS[i]?`<em class="bon">${BONUS[i]} bonus</em>`:""}${i==3?'<em class="bon pop">MOST POPULAR</em>':""}<span class="sp"></span><span class="pr">$${p.p}</span></label>`).join("")}</div>
- <button class="paybtn" onclick="buy(S.pack)">Pay $${COIN_PACKAGES[S.pack].p} with card</button><p class="muted pad">Secure checkout by Stripe. ${S.cfg.payments?"":"(Payments not connected yet.)"} Coins have no cash value.</p></div>`)}
+ ${S.cfg.stripe_live?`<button class="paybtn" onclick="buy(S.pack)">Pay $${COIN_PACKAGES[S.pack].p} with card</button>`:""}${S.cfg.paypal?`<div class="ppbox"><div class="ppsum">Pay <b>$${COIN_PACKAGES[S.pack].p}</b> for 🪙 ${fmt(COIN_PACKAGES[S.pack].c)}</div><div id="ppbtn"></div></div>`:""}
+ <p class="muted pad">${S.cfg.paypal?"Pay with PayPal or a debit/credit card, processed securely by PayPal.":S.cfg.stripe_live?"Secure checkout by Stripe.":"(Payments not connected yet.)"} Coins have no cash value.</p></div>`);ppButtons({kind:"coins",pack:S.pack})}
 async function buy(i){if(!S.cfg.payments)return toast("Payments not connected yet");try{location.href=(await api("/api/checkout",{method:"POST",body:{pack:i}})).url}catch(e){toast(e.message)}}
 async function diamonds(){setNav("diamonds","Diamond Rewards");setMe(await api("/api/me"));const d=S.diamonds,pct=Math.min(100,d/CASHOUT_MIN_DIAMONDS*100);const po=await api("/api/payouts").catch(()=>[]);
  V(`<div class="card store"><div class="sth"><h2>Diamond Rewards</h2><span class="bal dm">💎 <b data-dia>${fmt(d)}</b></span></div>
@@ -504,7 +517,7 @@ async function diamonds(){setNav("diamonds","Diamond Rewards");setMe(await api("
 async function payout(){const pp=prompt(`Cash out $${(Math.floor(S.diamonds/DIAMONDS_PER_USD*100)/100).toFixed(2)} (${fmt(S.diamonds)} 💎).\nPayPal email to pay you at:`);if(pp==null)return;try{const r=await api("/api/payouts",{method:"POST",body:{paypal:pp.trim()}});setMe(r.me);toast("Payout requested (pending)");diamonds()}catch(e){toast(e.message)}}
 function premium(){setNav("premium","Premium");const on=S.me.premium;V(`<div class="card prem"><div class="phero"><h1>🚀 ${APP_NAME} Premium</h1><p>${on?`Active until ${new Date(S.me.premium_until.replace(" ","T")+"Z").toLocaleDateString()}`:"Stand out and meet more people."}</p></div>
  <div class="pad">${[["👁","See who viewed you","Full list of profile views, anytime"],["♥","See who likes you","Know who liked you before you vote"],["🚀","Profile boost","Shown first in Discover & Match"],["🎁","VIP gifts","Unlock VIP-only gifts in live streams"],["🏅","Premium badge","A 🚀 badge on your profile and tiles"]].map(([i,t,s])=>`<div class="srow"><span><i class="pi">${i}</i>${t}<small>${s}</small></span></div>`).join("")}
- <button class="paybtn" onclick="buyPremium()">${on?"Add 30 more days":"Get Premium"} — $${S.cfg.premium_usd||9.99}</button><p class="muted">30 days of Premium, one-time payment, no auto-renew. Secure checkout by Stripe.${S.cfg.stripe_test?" (Test mode — use card 4242 4242 4242 4242.)":""}</p></div></div>`)}
+ ${S.cfg.stripe_live?`<button class="paybtn" onclick="buyPremium()">${on?"Add 30 more days":"Get Premium"} — $${S.cfg.premium_usd||9.99}</button>`:""}${S.cfg.paypal?`<div class="ppbox"><div class="ppsum">${on?"Add 30 more days":"Get Premium"} — <b>$${S.cfg.premium_usd||9.99}</b></div><div id="ppbtn"></div></div>`:""}<p class="muted">30 days of Premium, one-time payment, no auto-renew. ${S.cfg.paypal?"Pay with PayPal or a debit/credit card, processed securely by PayPal.":S.cfg.stripe_live?"Secure checkout by Stripe.":"(Payments not connected yet.)"}</p></div></div>`);ppButtons({kind:"premium"})}
 async function buyPremium(){if(!S.cfg.payments)return toast("Payments not connected yet");try{location.href=(await api("/api/checkout/premium",{method:"POST"})).url}catch(e){toast(e.message)}}
 
 // ---------------- Gate (signup/login) ----------------
