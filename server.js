@@ -297,7 +297,7 @@ app.post('/api/me/password',authLimit,auth,async(req,res)=>{const{current,next}=
   req.session.regenerate(()=>{req.session.uid=req.user.id;res.json({ok:1})})});
 const MAIL_ON=()=>!!(process.env.AGENTMAIL_API_KEY||process.env.RESEND_API_KEY);
 async function sendMail(to,subject,text,html){ // AgentMail (AGENTMAIL_API_KEY + MAIL_INBOX) preferred, Resend fallback. Without either, nothing is sent.
-  try{if(process.env.AGENTMAIL_API_KEY){const inbox=encodeURIComponent(process.env.MAIL_INBOX||'tapin@mail.grokbot.com');
+  try{if(process.env.AGENTMAIL_API_KEY){const inbox=encodeURIComponent(process.env.MAIL_INBOX||'tap.in@agentmail.to');
       const r=await fetch(`https://api.agentmail.to/v0/inboxes/${inbox}/messages/send`,{method:'POST',headers:{Authorization:'Bearer '+process.env.AGENTMAIL_API_KEY,'Content-Type':'application/json'},
         body:JSON.stringify({to:[to],subject,text,html}),signal:AbortSignal.timeout(8000)});if(!r.ok)console.error('mail failed: agentmail',r.status);return r.ok}
     if(!process.env.RESEND_API_KEY)return false;
