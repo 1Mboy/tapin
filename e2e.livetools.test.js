@@ -35,6 +35,8 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  const geo=await H.$$eval('#tbar > button',b=>b.map(x=>{const r=x.getBoundingClientRect(),s=getComputedStyle(x);return{c:r.left+r.width/2,w:r.width,bg:s.backgroundColor,y:r.top}}));
  ok(geo.every(g=>g.bg=='rgba(0, 0, 0, 0)'),'icons have no background');
  const gaps=geo.slice(1).map((g,i)=>g.c-geo[i].c);ok(Math.max(...gaps)-Math.min(...gaps)<14,'evenly spaced '+gaps.map(x=>x|0));
+ const W=await H.evaluate(()=>innerWidth),slot=W/geo.length;ok(geo.every((g,i)=>Math.abs(g.c-slot*(i+.5))<3),'icon centers evenly distributed across full width ('+W+'px, slot '+(slot|0)+'): '+geo.map(g=>g.c|0));
+ const tb=await H.$eval('#tbar',e=>{const r=e.getBoundingClientRect();return{l:r.left,w:r.width,b:r.bottom,h:innerHeight,pb:getComputedStyle(e).paddingBottom}});ok(tb.l==0&&Math.abs(tb.w-W)<1&&Math.abs(tb.b-tb.h)<1&&parseFloat(tb.pb)>=10,'host bar full width, pinned bottom with safe-area padding');
  ok(await H.$eval('#cinb',e=>e.hidden),'chat input hidden by default');
  const clutter=await H.evaluate(()=>['#ltm','.lbadge','#micb','.lx-x.end'].filter(s=>document.querySelector('.lvx '+s)));ok(!clutter.length,'no extra clutter (timer/LIVE badge/mic/End pill)');
  const x=await H.$eval('#endx',e=>({bg:getComputedStyle(e).backgroundColor,r:e.getBoundingClientRect()}));ok(x.bg=='rgba(0, 0, 0, 0)'&&x.r.left>300&&x.r.top<80,'top-right X with no background');

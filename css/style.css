@@ -465,3 +465,8 @@ video.vbg{position:absolute;inset:-6%;width:112%;height:112%;object-fit:cover;fi
 .pvbar #gt{flex:1;min-width:0;height:44px;border-radius:22px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.15);color:#fff;padding:0 14px;font-size:14px}
 .pvbar .startbtn{width:auto;flex:none;height:44px;padding:0 20px;border-radius:22px;background:linear-gradient(180deg,#fff,#e9edf3);color:#e01e2b;font-size:16px;box-shadow:0 3px 12px rgba(0,0,0,.35)}
 .facetoast{pointer-events:none}
+/* bar-fix: host live bar = 7 equal full-width slots, icon centered in each (no reliance on space-between/gap; scoped so the
+   mobile tab-bar .ti rule can't leak in). Sits above the home indicator via safe-area padding. */
+.lvx .tbar{width:100%;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);justify-content:space-evenly;justify-items:center;align-items:center;gap:0;padding:8px 0 calc(10px + env(safe-area-inset-bottom))}
+.lvx .tbar>.ti{flex:none;margin:0;-webkit-appearance:none;appearance:none}
+.lvx .vbar2{width:100%;justify-content:space-between}.lvx .vbar2>*{margin:0}.lvx .vbar2>.ti{-webkit-appearance:none;appearance:none}
