@@ -13,3 +13,4 @@ __pycache__/
 .stripe_key.env
 .metered.env
 .admin_token.env
+.paypal.env
