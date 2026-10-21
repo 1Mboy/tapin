@@ -11,9 +11,9 @@ async function token(){if(tok&&tok.exp>Date.now()+60e3)return tok.v;
 async function pp(method,path,body,extra={}){const r=await fetch(API+path,{method,headers:{Authorization:'Bearer '+await token(),'Content-Type':'application/json',Prefer:'return=representation',...extra},body:body&&JSON.stringify(body),signal:AbortSignal.timeout(20000)});
   const j=await r.json().catch(()=>({}));return{status:r.status,ok:r.ok,j}}
 const money=n=>(Math.round(n*100)/100).toFixed(2);
-async function createOrder(db,uid,{kind,pack},{COIN_PACKAGES,PREMIUM_USD}){
+async function createOrder(db,uid,{kind,pack,usd:want},{COIN_PACKAGES,PREMIUM_USD}){
   let coins=0,usd,name;if(kind==='premium'){usd=PREMIUM_USD;name='Tap.in Premium (30 days)'}
-  else{const p=Number.isInteger(pack)&&COIN_PACKAGES[pack];if(!p)throw err(400,'Unknown pack');coins=p.c;usd=p.p;name=`${p.c.toLocaleString('en-US')} Tap.in coins`;kind='coins'}
+  else{const p=Number.isInteger(pack)&&COIN_PACKAGES[pack];if(!p)throw err(400,'Unknown pack');coins=p.c;usd=p.p;if(want!=null&&money(+want)!==money(usd))throw err(409,'Price changed, please refresh the store');name=`${p.c.toLocaleString('en-US')} Tap.in coins`;kind='coins'}
   const {ok,j}=await pp('POST','/v2/checkout/orders',{intent:'CAPTURE',purchase_units:[{reference_id:kind,custom_id:String(uid),description:name,
     amount:{currency_code:'USD',value:money(usd),breakdown:{item_total:{currency_code:'USD',value:money(usd)}}},items:[{name,quantity:'1',category:'DIGITAL_GOODS',unit_amount:{currency_code:'USD',value:money(usd)}}]}],
     application_context:{brand_name:'Tap.in',shipping_preference:'NO_SHIPPING',user_action:'PAY_NOW'}});

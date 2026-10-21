@@ -64,7 +64,7 @@ const admin=(p,b)=>fetch(URL+'api/admin-tmp/'+p,{method:b?'POST':'GET',headers:{
  for(const [r,nmx] of [['#/match','match'],['#/discover/near','near_you'],['#/discover/map','map'],['#/u/'+hu,'other_profile'],['#/gold','coins'],['#/diamonds','diamonds_cashout'],['#/premium','premium'],['#/live/tools/menu','streamer_tools']]){
   await V.goto(URL+r);await V.waitForTimeout(1500);ok(!(await V.$('.empty:has-text("Something went wrong")')),nmx+' screen loads');await noOverflow(V,nmx);await shot(V,nmx)}
  const txt=await V.evaluate(()=>document.body.innerText);ok(true,'');
- await V.goto(URL+'#/gold');const prices=await V.evaluate(()=>COIN_PACKAGES.map(p=>p.c+'='+p.p).join(','));ok(prices==='100=0.99,550=4.99,1200=9.99,2500=19.99,6500=49.99,14000=99.99','coin packs '+prices);
+ await V.goto(URL+'#/gold');const prices=await V.evaluate(()=>COIN_PACKAGES.map(p=>p.c+'='+p.p).join(','));ok(prices==='200=1.99,550=4.99,1200=9.99,2500=19.99,6500=49.99,14000=99.99','coin packs '+prices);
  // payouts recorded
  if(AT){await admin('grant',{username:hu,field:'diamonds',amount:40000});H._prompt='hana@example.com';await H.goto(URL+'#/diamonds');await H.waitForSelector('.paybtn:not([disabled])');await H.click('.paybtn');await H.waitForSelector('.toast:has-text("Payout requested")');
   const pk=await admin('peek?username='+hu);ok(pk.diamonds===0&&pk.payouts.length===1&&pk.payouts[0].status==='pending'&&pk.payouts[0].paypal==='hana@example.com'&&pk.payouts[0].gross_usd===200&&pk.payouts[0].fee_usd===1&&pk.payouts[0].net_usd===199,'cash-out recorded: '+JSON.stringify(pk.payouts[0]));await shot(H,'cashout_recorded');

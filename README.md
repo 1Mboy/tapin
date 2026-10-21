@@ -2,6 +2,7 @@
 
 The existing front end (`index.html`, `css/`, `js/app.js`, `img/`) is served by `server.js`.
 Gift list (152 `GIFTS`), the 50% streamer share, coin packs and cash-out rules (40,000 💎 = $200 min, 200 💎 = $1, flat `PAYOUT_FEE_USD` = $1.00 fee per cash-out)
+(coins/USD: 200/$1.99, 550/$4.99, 1,200/$9.99, 2,500/$19.99, 6,500/$49.99, 14,000/$99.99)
 live in `js/app.js` and the server **reads them from that file**, so the client and server always agree.
 
 ## Run locally
