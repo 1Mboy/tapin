@@ -58,7 +58,7 @@ function badges(){$$('[data-badge="dm"]').forEach(e=>e.style.display=S.unread?""
 function setNav(k,title){$$(".si,.ti").forEach(a=>a.classList.toggle("on",a.dataset.k==k||(k=="viewer"&&a.dataset.k=="live")));const t=$("#ttl");if(t)t.textContent=title||TITLES[k]||"";document.title=`${title||TITLES[k]||""} | ${APP_NAME}`;
  document.body.classList.toggle("immersive",k=="viewer"||k=="broadcast")}
 const V=h=>{$("#view").innerHTML=h};
-function closePops(){$$(".pop,.sheet-bg").forEach(e=>e.remove())}
+function closePops(){S.giftTo=null;$$(".pop,.sheet-bg").forEach(e=>e.remove())}
 function popAt(ev,html,cls=""){closePops();const d=document.createElement("div");d.className="pop "+cls;d.innerHTML=html;document.body.append(d);
  const r=ev.currentTarget.getBoundingClientRect();if(isPhone()){d.classList.add("popm")}else{d.style.left=(r.right+8)+"px";d.style.top=Math.max(8,Math.min(r.top-20,innerHeight-d.offsetHeight-8))+"px"}
  setTimeout(()=>document.addEventListener("click",function f(e){if(!d.contains(e.target)){d.remove();document.removeEventListener("click",f)}}),0);return d}
@@ -88,16 +88,20 @@ function connect(){if(sock)return;api("/api/ice").then(r=>S.ice=r.iceServers).ca
  sock.on("balance",b=>{S.coins=b.coins;S.diamonds=b.diamonds;if(S.me){S.me.coins=b.coins;S.me.diamonds=b.diamonds}$$("[data-coins]").forEach(e=>e.textContent=fmt(S.coins));$$("[data-dia]").forEach(e=>e.textContent=fmt(S.diamonds))});
  sock.on("streams",()=>{if(S.route=="live")loadLive()});
  sock.on("chat",m=>addChat(`<b class="cn" style="color:${nameColor(m.from)}">${esc(m.from)}</b> ${esc(m.text)}`,m.user));
- sock.on("joined",({user})=>{if(user.username!=S.me.username)addChat(`${av(user,22)} <b class="cn" style="color:${nameColor(user.display_name||user.username)}">${nm(user)}</b> <span class="jn">joined</span>`,user.username,"join")});
+ sock.on("joined",({user})=>{if(user.username==S.me.username)return;const J=S.lastJoin,now=Date.now();
+  if(J&&now-J.t<4000&&J.el.isConnected){J.n++;J.t=now;J.el.querySelector(".jn").textContent=`and ${J.n} other${J.n>1?"s":""} joined`;return}
+  addChat(`${av(user,22)} <b class="cn" style="color:${nameColor(user.display_name||user.username)}">${nm(user)}</b> <span class="jn">joined</span>`,user.username,"join");const c=$("#lchat");S.lastJoin=c?{t:now,n:0,el:c.lastElementChild}:null});
  sock.on("viewers",l=>{S.vlist=l;drawViewers()});
+ sock.on("guest-mic",({sid,mic})=>{const g=S.gs[sid];if(g){g.mic=mic;drawMic(sid)}if(sid==sock.id){const t=S.gstream?.getAudioTracks()[0];if(t)t.enabled=!(mic.host||mic.self);if(mic.host)toast("🔇 The host muted your mic")}});
+ sock.on("mod",({on})=>{if(S.view)S.view.mod=on;toast(on?"🛡 You're now a bouncer in this room":"You're no longer a bouncer")});
  sock.on("guest-invite",({user})=>inviteSheet(user));
  sock.on("guest-invite-no",({user})=>toast(`${user.display_name||user.username} declined your invite`));
  sock.on("muted",({on})=>{S.mutedMe=on;toast(on?"The host muted you in chat":"You can chat again")});
- sock.on("gift",g=>{addChat(`<b class="cn" style="color:${nameColor(g.from)}">${esc(g.from)}</b> sent ${gimg(g.k,"gc")} <b class="gold">${GIFTS[g.k][1]}</b> ${g.to&&S.gs&&Object.values(S.gs).some(x=>(x.user.display_name||x.user.username)==g.to)?` to <b>${esc(g.to)}</b>`:""} · <span class="dm">+${fmt(g.diamonds)} 💎</span>`,g.user,"gift");giftPop(g.k)});
+ sock.on("gift",g=>{addChat(`<b class="cn" style="color:${nameColor(g.from)}">${esc(g.from)}</b> sent ${gimg(g.k,"gc")} <b class="gold">${GIFTS[g.k][1]}</b> ${g.to&&S.gs&&Object.values(S.gs).some(x=>(x.user.display_name||x.user.username)==g.to)?` to <b>${esc(g.to)}</b>`:""} · <span class="dm">+${fmt(g.diamonds)} 💎</span>`,g.user,"gift");giftFx(g)});
  sock.on("heart",h=>{setStat("hearts",h.n);floatHeart()});
  sock.on("count",n=>setStat("viewers",n));
  sock.on("stats",st=>{for(const k in st)setStat(k,st[k])});
- sock.on("top",t=>{if(S.view)S.view.top=t;const e=$("#topg");if(e)e.innerHTML=e.classList.contains("lx-fans")?fanAvs(t):topHtml(t)});
+ sock.on("top",t=>{S.top=t;if(S.view)S.view.top=t;const e=$("#topg");if(e)e.innerHTML=e.classList.contains("lx-fans")?fanAvs(t):topHtml(t)});
  sock.on("ended",()=>{if(S.route=="viewer"){toast("Stream ended");S.view=null;go("#/live")}});
  sock.on("kicked",()=>{toast("You were removed from this stream");S.view=null;go("#/live")});
  sock.on("viewer",({sid})=>hostPeer(sid));
@@ -107,7 +111,7 @@ function connect(){if(sock)return;api("/api/ice").then(r=>S.ice=r.iceServers).ca
  sock.on("guest-pending",()=>{S.guestPending=true;updGuestUI();toast("Guest request sent — waiting for the host")});
  sock.on("guest-no",()=>{S.guestPending=false;updGuestUI();toast("The host declined your guest request")});
  sock.on("guest-ok",async({peers,guests})=>{S.guestPending=false;if(!S.gstream){try{S.gstream=await getCam("user")}catch(e){toast("Camera needed to join as guest");sock.emit("guest-end");return}}
-  S.guestMine=true;for(const g of guests||[])if(!S.gs[g.sid])S.gs[g.sid]={user:g.user};S.gs[sock.id]={user:S.me,mine:true};drawTiles();setTileStream(sock.id,S.gstream,true);updGuestUI();toast("You're on! You are now a guest 🎥");for(const p of peers)gOffer(p)});
+  S.guestMine=true;for(const g of guests||[])if(!S.gs[g.sid])S.gs[g.sid]={user:g.user,mic:g.mic};S.gs[sock.id]={user:S.me,mine:true};drawTiles();setTileStream(sock.id,S.gstream,true);updGuestUI();toast("You're on! You are now a guest 🎥");for(const p of peers)gOffer(p)});
  sock.on("guest-peer",({sid})=>gOffer(sid));
  sock.on("guest",({sid,user})=>{if(sid==sock.id)return;S.gs[sid]={...(S.gs[sid]||{}),user};drawTiles();updGuestUI();addChat(`<b class="gold">${nm(user)}</b> joined as a guest 🎥`,user.username,"join")});
  sock.on("guest-end",({sid})=>{const g=S.gs[sid];if(g&&sid!=sock.id)addChat(`<span class="muted">${nm(g.user)} left the guest seat</span>`);endGuestLocal(sid)});
@@ -132,12 +136,15 @@ const closePeers=()=>{Object.values(S.peers).forEach(p=>p.close());S.peers={};cl
 // ---- Multi-guest (Tagged-style split screen). Outbound = my camera to others (S.gout), inbound = a guest's camera to me (S.gin). ----
 S.gout={};S.gin={};S.gs={};S.vlist=[];
 const sidOf=n=>(S.vlist||[]).find(v=>v.user.username==n)?.sid;
-function tileHtml(sid,g){return `<div class="tl" data-sid="${esc(sid)}">${vids("",1)}<small class="tn2" data-u="${esc(g.user.username)}">${nm(g.user)}</small>${S.live||g.mine?`<button class="gx" title="${g.mine?"Leave":"Remove guest"}" onclick="event.stopPropagation();${g.mine?"guestLeave()":`sock.emit('guest-end',{sid:'${esc(sid)}'})`}">✕</button>`:""}</div>`}
+function tileHtml(sid,g){return `<div class="tl" data-sid="${esc(sid)}">${vids("",1)}<small class="tn2" data-u="${esc(g.user.username)}"><i class="mi"></i>${nm(g.user)}</small>${S.live||g.mine?`<button class="gmic" title="Mic" onclick="event.stopPropagation();micTap('${esc(sid)}')">🎤</button>`:""}${S.live||g.mine?`<button class="gx" title="${g.mine?"Leave":"Remove guest"}" onclick="event.stopPropagation();${g.mine?"guestLeave()":`sock.emit('guest-end',{sid:'${esc(sid)}'})`}">✕</button>`:""}</div>`}
 function drawTiles(){const st=$("#stg");if(!st)return;const ids=Object.keys(S.gs);
  $$("#stg .tl[data-sid],#stg .seat").forEach(t=>{if(t.classList.contains("seat")||!S.gs[t.dataset.sid])t.remove()});
- for(const sid of ids)if(![...st.children].some(t=>t.dataset.sid==sid)){st.insertAdjacentHTML("beforeend",tileHtml(sid,S.gs[sid]));const g=S.gs[sid];if(g.stream)setTileStream(sid,g.stream,g.mine)}
+ for(const sid of ids)if(![...st.children].some(t=>t.dataset.sid==sid)){st.insertAdjacentHTML("beforeend",tileHtml(sid,S.gs[sid]));const g=S.gs[sid];if(g.stream)setTileStream(sid,g.stream,g.mine);drawMic(sid)}
  const n=1+ids.length;if(n==3)st.insertAdjacentHTML("beforeend",`<div class="tl seat">${S.live?`<button class="seatb" onclick="viewerSheet()">＋<small>Invite</small></button>`:`<span>Empty seat</span>`}</div>`);
  st.dataset.n=n;[...st.children].forEach((t,i)=>t.classList.toggle("r0",n==1||i<(n==2?1:2)));setTimeout(()=>$$("#stg video.vfg").forEach(fitVideo),60);updGuestUI()}
+function drawMic(sid){const g=S.gs[sid],t=[...$$("#stg .tl")].find(x=>x.dataset.sid==sid);if(!g||!t)return;const m=g.mic||{},off=m.host||m.self;
+ t.classList.toggle("micoff",!!off);t.querySelector(".mi").textContent=off?"🔇 ":"";const b=t.querySelector(".gmic");if(b){b.textContent=off?"🔇":"🎤";b.classList.toggle("off",!!off)}}
+function micTap(sid){const m=S.gs[sid]?.mic||{};if(S.live)sock.emit("guest-mic",{sid,muted:!m.host});else{if(m.host)return toast("The host muted your mic");sock.emit("guest-mic",{muted:!m.self})}}
 function setTileStream(sid,stream,mine){const g=S.gs[sid];if(!g)return;g.stream=stream;const t=[...$$("#stg .tl")].find(x=>x.dataset.sid==sid);if(!t)return;const v=t.querySelector("video.vfg");
  if(v.srcObject===stream)return;if(mine){v.muted=true;delete v.dataset.remote}else{v.dataset.remote=1;v.muted=false}attachV(v,stream,!!mine)}
 function endGuestLocal(sid){S.gin[sid]?.close();delete S.gin[sid];delete S.gs[sid];
@@ -166,13 +173,17 @@ async function userCard(n){if(!n)return;const host=S.live?S.me:S.view?.user,amHo
  let u=vi?.user||(gsid&&S.gs[gsid].user)||(isHost&&host)||{username:n};
  const box=sheet(`<div class="ucard" id="ucard"><div class="ucav">${av(u,84)}</div><button class="x ucx" onclick="closePops()">✕</button><b class="ucn">${nm(u)}</b><div class="ucb"></div><div class="ucact"></div></div>`,"ucsheet");
  const draw=(u,fol)=>{const ib=(i,t,f,c="")=>`<button class="ucbtn ${c}" onclick="${f}"><i>${i}</i><small>${t}</small></button>`;const en=esc(n).replace(/'/g,"\\'");
-  box.querySelector(".ucb").innerHTML=`<span class="lvb">Lv ${u.level||1}</span>${isHost?'<span class="bh">HOST</span>':""}${gsid?'<span class="bg">🎥 GUEST</span>':""}${u.premium?'<span class="bp">VIP</span>':""}${vi?.muted?'<span class="bm">🔇 Muted</span>':""}${u.city?`<span class="bc2">📍 ${esc(u.city)}</span>`:""}`;
+  box.querySelector(".ucb").innerHTML=`${u.verified?'<span class="bv">✔ Verified</span>':""}<span class="lvb">Lv ${u.level||1}</span>${isHost?'<span class="bh">HOST</span>':""}${vi?.fan?`<span class="bf">🏆 Top fan #${vi.fan}</span>`:""}${vi?.bouncer?'<span class="bb">🛡 Bouncer</span>':""}${u.new_user?'<span class="bn">🌱 New</span>':""}${gsid?'<span class="bg">🎥 GUEST</span>':""}${u.premium?'<span class="bp">VIP</span>':""}${vi?.muted?'<span class="bm">🔇 Muted</span>':""}${u.city?`<span class="bc2">📍 ${esc(u.city)}</span>`:""}`;
   if(self){box.querySelector(".ucact").innerHTML=`<button class="btn out full" onclick="closePops();go('#/u/${en}')">View my profile</button>`;return}
   let h=`<div class="ucrow">${ib(fol?"★":"＋",fol?"Following":"Follow",`ucFollow('${en}',${!!fol})`,fol?"on":"follow")}${ib("👤","Profile",`closePops();go('#/u/${en}')`)}${!amHost&&(isHost||gsid)?ib("🎁","Gift",`closePops();giftSheet('${isHost?"":en}')`):""}${ib("@","Mention",`ucMention('${en}')`)}</div>`;
-  if(amHost){const sid=vi?.sid;h+=`<div class="ucmod">${gsid?`<button class="ucm" onclick="sock.emit('guest-end',{sid:'${gsid}'});closePops()">🎥 Remove from guest seat</button>`:sid?`<button class="ucm pri" onclick="sock.emit('guest-invite',{sid:'${sid}'});closePops();toast('Invite sent')">🎥 Invite to join live</button>`:""}
+  const amMod=amHost||!!S.view?.mod;
+  if(amHost){const sid=vi?.sid,mic=gsid&&S.gs[gsid].mic||{};h+=`<div class="ucmod">${gsid?`<button class="ucm" onclick="micTap('${gsid}');closePops()">${mic.host?"🎤 Unmute guest mic":"🔇 Mute guest mic"}</button>`:""}${gsid?`<button class="ucm" onclick="sock.emit('guest-end',{sid:'${gsid}'});closePops()">🎥 Remove from guest seat</button>`:sid?`<button class="ucm pri" onclick="sock.emit('guest-invite',{sid:'${sid}'});closePops();toast('Invite sent')">🎥 Invite to join live</button>`:""}
    <button class="ucm" onclick="sock.emit('mute',{username:'${en}',on:${!vi?.muted}});closePops();toast('${vi?.muted?"Unmuted":"Muted in chat"}')">${vi?.muted?"🔊 Unmute in chat":"🔇 Mute in chat"}</button>
    <button class="ucm red" onclick="if(confirm('Remove ${en} from your stream?')){sock.emit('kick',{username:'${en}'});closePops();toast('Removed from stream')}">⛔ Kick from room</button>
+   ${vi?`<button class="ucm" onclick="sock.emit('bouncer',{username:'${en}',on:${!vi.bouncer}});closePops();toast('${vi.bouncer?"Bouncer removed":"Made a bouncer 🛡"}')">${vi.bouncer?"🛡 Remove bouncer":"🛡 Make bouncer"}</button>`:""}
    <button class="ucm red" onclick="ucBlock('${en}')">⊘ Block</button><button class="ucm" onclick="closePops();reportSheet('${en}',S.live?.id)">⚠ Report</button></div>`}
+  else if(amMod&&!isHost)h+=`<div class="ucmod"><button class="ucm" onclick="sock.emit('mute',{username:'${en}',on:${!vi?.muted}});closePops();toast('${vi?.muted?"Unmuted":"Muted in chat"}')">${vi?.muted?"🔊 Unmute in chat":"🔇 Mute in chat"}</button>
+   <button class="ucm red" onclick="if(confirm('Remove ${en} from this stream?')){sock.emit('kick',{username:'${en}'});closePops();toast('Removed from stream')}">⛔ Kick from room</button><button class="ucm" onclick="closePops();reportSheet('${en}',S.view?.id)">⚠ Report</button></div>`
   else h+=`<div class="ucmod"><button class="ucm" onclick="closePops();reportSheet('${en}',S.view?.id)">⚠ Report</button></div>`;
   box.querySelector(".ucact").innerHTML=h};
  draw(u,isHost&&!amHost?S.view?.following:false);if(self)return;
@@ -191,7 +202,24 @@ function guestAnswer(sid,ok){sock.emit("guest-answer",{sid,accept:ok});S.greqs=(
 function drawReqs(){const l=S.greqs||[];const n=$("#rqn");if(n)n.textContent=l.length||"";for(const e of [$("#greqs"),$("#greqs2")].filter(Boolean))e.innerHTML=l.length?l.map(r=>`<div class="gri">${av(r.user,32)}<b>${nm(r.user)}</b><span class="sp"></span><button class="btn sm out" onclick="guestAnswer('${r.sid}',false)">✕</button><button class="btn sm pri" onclick="guestAnswer('${r.sid}',true)">Accept</button></div>`).join(""):'<small class="muted">No guest requests right now.</small>'}
 function setStat(k,v){$$(`[data-st="${k}"]`).forEach(e=>e.textContent=fmt(v))}
 function addChat(h,u,cls=""){const c=$("#lchat");if(!c)return;c.insertAdjacentHTML("beforeend",u?`<p class="tap ${cls}" role="button" data-u="${esc(u)}">${h}</p>`:`<p class="${cls}">${h}</p>`);while(c.children.length>80)c.firstElementChild.remove();c.scrollTop=1e9}
-function giftPop(k){const f=document.createElement("div");f.className="gpop";f.innerHTML=gimg(k,"");document.body.append(f);setTimeout(()=>f.remove(),1600)}
+// ---- Gift animations (Tagged/Bigo style): combo banners for small gifts, queued full-screen show for big ones ----
+const BIG_GIFT=1000,GTIER=c=>c>=15000?3:c>=5000?2:c>=BIG_GIFT?1:0,RM=()=>matchMedia("(prefers-reduced-motion: reduce)").matches;
+const GFX={lanes:[null,null],wait:[],big:[],bigOn:false};
+function gfxRoot(){let r=$("#gfx");if(!r){r=document.createElement("div");r.id="gfx";r.innerHTML='<div class="gfl"></div>';document.body.append(r)}return r}
+function giftFx(g){if(!$(".lvx,.vw"))return;if(GTIER(g.coins||GIFTS[g.k][2]))GFX.big.push(g),bigNext();banner(g)}
+function banner(g){const key=g.user+"|"+g.k+"|"+(g.to||"");const L=GFX.lanes.find(l=>l&&l.key==key);
+ if(L){L.n++;const c=L.el.querySelector(".gbx");c.textContent="x"+L.n;c.classList.remove("cpop");void c.offsetWidth;c.classList.add("cpop");clearTimeout(L.t);L.t=setTimeout(()=>bannerOut(L),3000);return}
+ const i=GFX.lanes.indexOf(null);if(i<0){const w=GFX.wait.find(x=>x.key==key);if(w)w.n++;else GFX.wait.push({key,g,n:1});return}
+ const u=g.sender||{username:g.user,display_name:g.from},el=document.createElement("div");el.className="gbn l"+i+(GTIER(g.coins||0)?" big":"");
+ el.innerHTML=`${av(u,38)}<span class="gbt"><b>${esc(g.from)}</b><small>sent ${esc(GIFTS[g.k][1])}${g.guest&&g.to?` to <i>${esc(g.to)}</i>`:""}</small></span>${gimg(g.k,"gbi")}<b class="gbx">x1</b>`;
+ gfxRoot().querySelector(".gfl").append(el);const lane={key,el,n:1,i};GFX.lanes[i]=lane;lane.t=setTimeout(()=>bannerOut(lane),3000)}
+function bannerOut(l){l.el.classList.add("out");setTimeout(()=>{l.el.remove();GFX.lanes[l.i]=null;const w=GFX.wait.shift();if(w){banner(w.g);const L=GFX.lanes.find(x=>x&&x.key==w.key);if(L&&w.n>1){L.n=w.n;L.el.querySelector(".gbx").textContent="x"+w.n}}},350)}
+function bigNext(){if(GFX.bigOn||!GFX.big.length)return;const g=GFX.big.shift(),t=GTIER(g.coins||GIFTS[g.k][2]),rm=RM(),ms=rm?1800:[0,2800,3500,4500][t];GFX.bigOn=true;
+ const np=rm?0:[0,18,30,44][t],parts=Array.from({length:np},(_,i)=>{const a=i/np*6.283+Math.random()*.3,d=110+Math.random()*(70+t*50);
+  return `<i class="gsp" style="--x:${(Math.cos(a)*d)|0}px;--y:${(Math.sin(a)*d)|0}px;--d:${(Math.random()*.35).toFixed(2)}s;--s:${(4+Math.random()*6)|0}px;background:${["#f5c542","#ffe08a","#1e90ff","#fff"][i%4]}"></i>`}).join("");
+ const el=document.createElement("div");el.className=`gfx-big t${t}${rm?" rm":""}`;el.style.setProperty("--ms",ms+"ms");
+ el.innerHTML=`<div class="gfr"></div><div class="gfg"></div><div class="gfp">${parts}</div>${gimg(g.k,"gfi")}<div class="gfc"><b>${esc(g.from)}</b> sent <b class="gold">${esc(GIFTS[g.k][1])}</b>${g.guest&&g.to?` to <b>${esc(g.to)}</b>`:""}<small>🪙 ${fmt(g.coins||GIFTS[g.k][2])}</small></div>`;
+ gfxRoot().append(el);setTimeout(()=>{el.remove();GFX.bigOn=false;bigNext()},ms)}
 function floatHeart(){const box=$(".hearts");if(!box)return;const h=document.createElement("i");h.className="fh";h.textContent=["💙","💛","🤍"][Math.random()*3|0];h.style.left=(70+Math.random()*20)+"%";box.append(h);setTimeout(()=>h.remove(),1800)}
 
 // ---------------- router ----------------
@@ -232,14 +260,15 @@ const annos=()=>[["#/gold","linear-gradient(135deg,#0b3d91,#1e90ff)","NEW!","BUY
  ["#/diamonds","linear-gradient(135deg,#001b3d,#0066cc 60%,#00c6ff)","CREATORS","CASH OUT DIAMONDS",`${fmtN(CASHOUT_MIN_DIAMONDS)} 💎 = $${CASHOUT_MIN_DIAMONDS/DIAMONDS_PER_USD} · $${PAYOUT_FEE_USD} fee per cash-out`],
  ["#/golive","linear-gradient(135deg,#141821,#0047ff)","APPLY","BE A FEATURED CREATOR!","Go live 3× this week to get featured"]]
  .map(([h,bg,k,t,s])=>`<a class="anb" href="${h}" style="background:${bg}"><small>${k}</small><b>${t}</b><span>${s}</span><i>LEARN MORE</i></a>`).join("");
-function shareLive(){const u=location.origin+"/#/live";(navigator.share?navigator.share({title:APP_NAME+" Live",url:u}):navigator.clipboard.writeText(u).then(()=>toast("Link copied"))).catch(()=>toast("Link: "+u))}
+function fansSheet(){const t=(S.live?S.top:S.view?.top)||[];sheet(`<div class="shd"><b>🏆 Top fans</b><button class="x" onclick="closePops()">✕</button></div><div class="vsheet">${t.length?t.map((u,i)=>`<button class="vrow" data-u="${esc(u.username)}"><i class="tr t${i}">${i+1}</i>${av(u,40)}<span><b>${nm(u)}</b><small>💎 ${fmt(u.diamonds)}</small></span><i>›</i></button>`).join(""):'<p class="muted pad">No gifts yet — be the first top fan!</p>'}</div><div class="pad"><button class="btn out full" onclick="go('#/live/tools/gifters')">All-time leaderboard</button></div>`)}
+function shareLive(){const id=S.live?.id||S.view?.id,u=location.origin+"/#/live"+(id?"/view/"+id:"");(navigator.share?navigator.share({title:APP_NAME+" Live",url:u}):navigator.clipboard.writeText(u).then(()=>toast("Link copied"))).catch(()=>toast("Link: "+u))}
 function search(){setNav("live","Live");V(`<div class="card pad"><div class="srch"><button class="ib" onclick="go('#/live')">←</button><input id="sq" placeholder="Search streamers, people, #tags" oninput="clearTimeout(window._sq);window._sq=setTimeout(doSearch,250)"></div><div id="sr" class="muted pad">Type to search.</div></div>`);$("#sq").focus()}
 async function doSearch(){const q=$("#sq").value.trim();if(!q){$("#sr").innerHTML="Type to search.";return}const r=await api("/api/search?q="+encodeURIComponent(q));
  $("#sr").innerHTML=`${r.streams.length?`<h4>LIVE</h4><div class="tgrid">${r.streams.map(s=>tile(s)).join("")}</div>`:""}<h4>PEOPLE</h4>${r.users.length?plist(r.users):'<p class="muted">No people found.</p>'}`}
 
 // ---------------- Streamer tools (trophy / wrench) ----------------
 async function tools(sec){setNav("live","Live");const t=await api("/api/tools");
- const items=[["gifters","🏆","Top Gifters"],["favorites","♡","Favorites"],["recent","🕘","Recent Streams"],["bouncers","🛡","Bouncers"],["blocked","⊘","Blocked Users"],["feedback","➤","Send Feedback"],["more","⋮","More"]];
+ const items=[["gifters","🏆","Top Gifters"],["favorites","♡","Favorites"],["recent","🕘","Recent Streams"],["bouncers","🛡","Bouncers"],["blocked","⊘","Blocked Users"],["roombans","🚫","Room Bans"],["feedback","➤","Send Feedback"],["more","⋮","More"]];
  if(sec=="menu"&&!isPhone())sec="gifters";
  const menu=`<div class="tmenu"><a class="back" href="#/live">‹ Back to Live</a><div class="tstat"><div><span>💎 Diamonds</span><b>${fmt(t.received)}</b></div><div><span>⭐ Fans</span><b>${fmt(t.fans)}</b></div>
   <button class="btn sm pri" onclick="go('#/diamonds')">Claim Cash Reward</button></div>
@@ -252,6 +281,8 @@ async function tools(sec){setNav("live","Live");const t=await api("/api/tools");
   tb.innerHTML=`<div class="gcols">${col(g.week,g.week_total,"This Week")}${col(g.all,g.all_total,"All Time")}</div>`}
  if(sec=="favorites"){const l=await api("/api/following");tb.innerHTML=`<h3 class="pad">Favorites</h3>${l.length?plist(l,u=>u.live?`<button class="btn sm pri" onclick="event.preventDefault();go('#/live/view/${u.stream_id}')">Watch</button>`:""):'<p class="muted pad">You have no favorites yet. Tap ☆ Favorite on a stream.</p>'}`}
  if(sec=="recent"){const l=await api("/api/tools/recent");const D=x=>new Date(x.replace(" ","T")+"Z");tb.innerHTML=`<h3 class="pad">Recent Streams</h3>${l.length?`<div class="rs">${l.map(s=>`<div class="rsi"><b>${esc(s.title||"Live")}</b> <small class="muted">${esc(s.tags||"")}</small><div class="muted">${D(s.started_at).toLocaleString()} · ${s.ended_at?dur(Math.max(0,Math.round((D(s.ended_at)-D(s.started_at))/1000))):"live now"}</div><div class="rsst"><span>👁 ${fmt(s.peak)} peak</span><span>♥ ${fmt(s.hearts)}</span><span>💎 ${fmt(s.diamonds)}</span><span>⭐ +${fmt(s.new_fans)} fans</span></div></div>`).join("")}</div>`:'<p class="muted pad">No streams yet. Tap GO LIVE! to start.</p>'}`}
+ if(sec=="roombans"){const l=await api("/api/roombans");tb.innerHTML=`<h3 class="pad">Room Bans</h3><p class="muted pad">People you kicked can't enter your streams; muted people can watch but not chat. This carries over to every stream until you lift it.</p>
+  ${l.length?plist(l,u=>`<i class="lbadge">${u.kind=="kick"?"KICKED":"MUTED"}</i><button class="btn sm out" onclick="event.preventDefault();api('/api/roombans/${esc(u.username)}/${u.kind}',{method:'DELETE'}).then(()=>{toast('${"Lifted"}');render()})">${u.kind=="kick"?"Unban":"Unmute"}</button>`):'<p class="muted pad">Nobody is banned or muted.</p>'}`}
  if(sec=="bouncers"||sec=="blocked"){const ep=sec=="bouncers"?"bouncers":"blocks";const l=await api("/api/"+ep);
   tb.innerHTML=`<h3 class="pad">${sec=="bouncers"?"Bouncers":"Blocked Users"}</h3><p class="muted pad">${sec=="bouncers"?"Bouncers can remove people from your live chat.":"Blocked people can't see your streams, message you, or find you."}</p>
   <div class="bar2 pad"><input id="bn" placeholder="Username"><button class="btn pri" onclick="listAdd('${ep}')">${sec=="bouncers"?"Add bouncer":"Block"}</button></div>
@@ -285,7 +316,7 @@ function unmuteBtn(v){const root=$(".lvx")||$(".vstage")||v.parentElement;if(roo
 addEventListener("resize",()=>$$("video.vfg").forEach(fitVideo));
 const vids=(id,muted)=>`<video class="vbg" autoplay muted playsinline aria-hidden="true"></video><video ${id?`id="${id}"`:""} class="vfg" autoplay playsinline ${muted?"muted":'data-remote="1"'}></video>`;
 const stg=(inner,u)=>`<div class="stg" id="stg" data-n="1"><div class="tl host r0" data-host="1">${inner}<small class="tn2" data-u="${esc(u.username)}">${nm(u)} <i class="hb2">HOST</i></small></div></div>`;
-const fanAvs=t=>(t||[]).slice(0,3).map((u,i)=>`<a class="fav3" href="#/u/${esc(u.username)}">${av(u,30)}<i class="tr t${i}">${i+1}</i></a>`).join("");
+const fanAvs=t=>(t||[]).slice(0,3).map((u,i)=>`<a class="fav3">${av(u,30)}<i class="tr t${i}">${i+1}</i></a>`).join("");
 
 // ---------------- Live viewer (Tagged layout: full-bleed on phone, video + gift/chat column on desktop) ----------------
 async function viewer(id){setNav("viewer","Live");connect();if(!S.streams.length)await loadLive();
@@ -294,7 +325,7 @@ async function viewer(id){setNav("viewer","Live");connect();if(!S.streams.length
  const ph=isPhone(),stage=`${stg(`${vids("rv")}<div id="vph" class="vph">${cover(u)}<span class="spin"></span><small>Connecting to stream…</small></div>`,u)}<div class="hearts"></div>`;
  if(ph)V(`<div class="lvx">${stage}
   <div class="lx-top"><div class="lx-pill"><a class="tapav" data-u="${esc(u.username)}">${av(u,34)}</a><span><b>${nm(u)}</b><small>💎 <i data-st="diamonds">${fmt(st.diamonds)}</i></small></span><button id="favb" class="fv ${r.following?"on":""}" onclick="favToggle('${esc(u.username)}')" title="Favorite">${r.following?"★":"+"}</button></div>
-   <span class="sp"></span><div class="lx-fans" id="topg" onclick="go('#/live/tools/gifters')">${fanAvs(r.top)}</div><div class="lx-vw" id="vav"></div><span class="lx-cnt" role="button" onclick="viewerSheet()">👁 <i data-st="viewers">${fmt(st.viewers)}</i></span><button class="lx-x" onclick="go('#/live')" title="Exit">✕</button></div>
+   <span class="sp"></span><div class="lx-fans" id="topg" onclick="fansSheet()">${fanAvs(r.top)}</div><div class="lx-vw" id="vav"></div><span class="lx-cnt" role="button" onclick="viewerSheet()">👁 <i data-st="viewers">${fmt(st.viewers)}</i></span><button class="lx-x" onclick="go('#/live')" title="Exit">✕</button></div>
   <div class="lx-stats"><span class="lvl">Lv ${u.level||1}</span><span>♥ <i data-st="hearts">${fmt(st.hearts)}</i></span><span>⭐ <i data-st="fans">${fmt(st.fans)}</i></span></div>
   <div class="lx-chat" id="lchat"><p class="sys">Welcome to ${nm(u)}'s stream! Be kind. 💙</p></div>
   <div class="lx-bar"><button class="lbtn" onclick="viewerMore()" title="More">☰</button><button class="lbtn hb" onclick="sock.emit('heart')" title="Like">♥</button><button class="lbtn" id="gbtn" onclick="guestReq()" title="Join as guest">👤+</button>
@@ -308,7 +339,7 @@ async function viewer(id){setNav("viewer","Live");connect();if(!S.streams.length
   <aside class="vside">${gpanel()}<div class="dchat"><div id="lchat" class="lchat d"><p class="sys">🛡 Let's keep Live fun! Nudity or obscene behavior results in account deletion.</p><p class="sys">Welcome to ${nm(u)}'s stream! 💙</p></div>
    <div class="vbar"><input id="ci" placeholder="Say something…" maxlength="300" onkeydown="event.key=='Enter'&&sendChat()"><button class="ib" onclick="sendChat()">➤</button></div></div></aside></div></div>
   ${others.length?`<section class="card also"><h4>VIEWERS ALSO WATCH</h4><div class="trow">${others.slice(0,8).map(s=>tile(s,1)).join("")}</div></section>`:""}</div>`);
- S.gs={};for(const g of r.guests||[])S.gs[g.sid]={user:g.user};S.vlist=r.viewers||[];S.mutedMe=r.muted;S.guestMine=false;S.guestPending=false;drawTiles();drawViewers();swipe($(".lvx")||$(".vstage"))}
+ S.gs={};for(const g of r.guests||[])S.gs[g.sid]={user:g.user,mic:g.mic};S.vlist=r.viewers||[];S.mutedMe=r.muted;S.guestMine=false;S.guestPending=false;drawTiles();drawViewers();swipe($(".lvx")||$(".vstage"))}
 function viewerMore(){const v=S.view;sheet(`<div class="shd"><b>More</b><button class="x" onclick="closePops()">✕</button></div><div class="pm">
  <a onclick="closePops();xpInfo()">⭐ My level (Lv ${S.me.xp?.n||1})</a><a onclick="closePops();go('#/live/tools/gifters')">🏆 Top gifters</a><a onclick="closePops();guestReq()">👤 ${S.guestMine?"Leave guest spot":"Request to join as guest"}</a>
  <a onclick="closePops();${S.me.premium?"S.gtab='Exclusive';S.gpage=0;giftSheet()":"go('#/premium')"}">🚀 VIP gifts</a><a onclick="closePops();nextStream(1)">⌄ Next stream</a><a onclick="closePops();reportSheet(null,S.view?.id)">⚠ Report stream</a></div>`)}
@@ -329,7 +360,7 @@ function gpanel(){const list=GIFTS.map((g,k)=>[g,k]).filter(([g])=>g[4]==S.gtab)
  <div class="xpb"><i class="lvc">${x.n}</i><div class="bar blue"><i style="width:${x.pct}%"></i></div><small>${fmt(x.to_next||0)} XP to Lv ${x.n+1}</small></div>
  <p class="safe">🛡 For your safety, never share personal info or send money outside ${APP_NAME}. Nudity or obscene behavior results in account deletion.</p></div>`}
 function redrawG(){$$(".sg").forEach(e=>e.outerHTML=gpanel())}
-function giftSheet(to){S.giftTo=to||null;sheet((to?`<div class="gto">🎁 Gift to <b>${esc(to)}</b></div>`:"")+gpanel(),"gsheet")}
+function giftSheet(to){sheet((to?`<div class="gto">🎁 Gift to <b>${esc(to)}</b></div>`:"")+gpanel(),"gsheet");S.giftTo=to||null}
 function sendGift(k){const g=GIFTS[k];if(locked(g))return toast(typeof g[5]=="number"?`Reach level ${g[5]} to unlock`:`${g[5]} only`);
  if(S.coins<g[2])return noCoins();sock.emit("gift",{k,to:S.giftTo||undefined},r=>{if(r?.error=="NOCOINS")return noCoins();if(r?.error)return toast(r.error);if(r?.xp){const up=r.xp.n>(S.me.xp?.n||1);S.me.xp=r.xp;redrawG();if(up)toast("🎉 Level up! You're now level "+r.xp.n)}})}
 function noCoins(){sheet(`<div class="shd"><b>Not enough coins</b><button class="x" onclick="closePops()">✕</button></div><p class="pad">Refill your coins to keep sending gifts.</p><div class="pad"><button class="btn pri full" onclick="go('#/gold')">Refill Coins</button></div>`,"center")}
@@ -349,7 +380,7 @@ function broadcaster(){const L=S.live,ph=isPhone(),stage=`${stg(vids("bv",1),S.m
  const ctl=`<button class="lbtn" onclick="flipCam()" title="Flip camera">🔄</button><button class="lbtn" id="micb" onclick="toggleMic(this)" title="Mute">🎤</button>`;
  if(ph)V(`<div class="lvx bc">${stage}
   <div class="lx-top"><div class="lx-pill">${av(S.me,34)}<span><b>${nm(S.me)} <i class="lbadge">LIVE</i></b><small>💎 <i data-st="stream_diamonds">0</i> · ⏱ <i id="ltm">0m 0s</i></small></span></div>
-   <span class="sp"></span><div class="lx-fans" id="topg"></div><div class="lx-vw" id="vav"></div><span class="lx-cnt" role="button" onclick="viewerSheet()">👁 <i data-st="viewers">0</i></span><button class="lx-x end" onclick="endLive()" title="End stream">End</button></div>
+   <span class="sp"></span><div class="lx-fans" id="topg" onclick="fansSheet()"></div><div class="lx-vw" id="vav"></div><span class="lx-cnt" role="button" onclick="viewerSheet()">👁 <i data-st="viewers">0</i></span><button class="lx-x end" onclick="endLive()" title="End stream">End</button></div>
   <div class="lx-stats"><span>♥ <i data-st="hearts">0</i></span><span>⭐ <i data-st="fans">0</i></span></div>
   <div class="lx-chat" id="lchat"><p class="sys">You're live! Viewers will appear here. 💙</p></div>
   <div class="lx-bar"><button class="lbtn" onclick="hostMore()" title="More">☰<i class="rq" id="rqn"></i></button>${ctl}<input id="ci" placeholder="Chat with viewers…" onkeydown="event.key=='Enter'&&sendChat()"><button class="lbtn" onclick="shareLive()" title="Share">✈</button></div>
@@ -370,7 +401,9 @@ async function flipCam(){try{const face=S.face=="environment"?"user":"environmen
 
 function endLive(silent){return new Promise(ok=>{if(!S.live)return ok();sock.emit("endlive",{},sum=>{clearInterval(S.ltimer);S.greqs=[];S.stream?.getTracks().forEach(t=>t.stop());S.stream=null;closePeers();const L=S.live;S.live=null;
  if(!silent)V(`<div class="card sum"><h2>Stream Ended</h2>${av(S.me,84)}<b>${nm(S.me)}</b><small class="muted">${esc(L.title)}</small>
-  <div class="sumg"><div><b>${dur(sum.duration||0)}</b><small>Duration</small></div><div><b>${fmt(sum.peak)}</b><small>Peak viewers</small></div><div><b>${fmt(sum.hearts)}</b><small>Hearts</small></div><div><b>💎 ${fmt(sum.diamonds)}</b><small>Diamonds earned</small></div><div><b>+${fmt(sum.new_fans)}</b><small>New fans</small></div></div>
+  <div class="sumg"><div><b>${dur(sum.duration||0)}</b><small>Duration</small></div><div><b>${fmt(sum.peak)}</b><small>Peak viewers</small></div><div><b>${fmt(sum.hearts)}</b><small>Hearts</small></div><div><b>💎 ${fmt(sum.diamonds)}</b><small>Diamonds earned</small></div><div><b>+${fmt(sum.new_fans)}</b><small>New followers</small></div><div><b>${fmt(sum.viewers||0)}</b><small>Viewers</small></div><div><b>${fmt(sum.gifts||0)}</b><small>Gifts</small></div></div>
+  ${sum.guests?.length?`<h4 class="sumh">🎥 GUESTS</h4><div class="suml">${sum.guests.map(g=>`<a class="sumr" href="#/u/${esc(g.user.username)}">${av(g.user,36)}<b>${nm(g.user)}</b><span class="sp"></span><small>${fmt(g.gifts)} gifts</small><em class="dpill">💎 ${fmt(g.diamonds)}</em></a>`).join("")}</div>`:""}
+  ${sum.gifters?.length?`<h4 class="sumh">🏆 TOP GIFTERS</h4><div class="suml">${sum.gifters.map((g,i)=>`<a class="sumr" href="#/u/${esc(g.user.username)}"><i class="tr t${Math.min(i,2)}">${i+1}</i>${av(g.user,36)}<b>${nm(g.user)}</b><span class="sp"></span><em class="dpill">💎 ${fmt(g.diamonds)}</em></a>`).join("")}</div>`:""}
   <button class="btn pri full" onclick="go('#/live')">Done</button><button class="btn out full" onclick="go('#/live/tools/recent')">Recent Streams</button></div>`);ok()})})}
 // ---------------- Discover ----------------
 const fq=()=>{const f=S.filters;return `gender=${f.gender}&min=${f.min}&max=${f.max}&dist=${f.dist}`};

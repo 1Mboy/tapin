@@ -48,6 +48,16 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
    return{has:true,enabled:t.enabled,state:t.readyState,muted:v.muted,rms:mx}});
  ok(au1.has&&au1.enabled&&au1.state=='live','host has live enabled audio track from guest');ok(!au1.muted,'guest tile <video> is not muted on host');ok(au1.rms>0.001,'host hears guest (level '+(au1.rms||0).toFixed(4)+')');
  await A.waitForFunction(()=>document.querySelector('#stg')?.dataset.n=='2'&&document.querySelector('#rv').videoWidth>0);const gm=await A.evaluate(()=>getComputedStyle(document.querySelector('#stg .tl[data-sid] video.vfg')).transform);ok(gm.includes('-1'),'guest own tile mirrored for guest');
+ // guest mic: host mutes guest, guest can't override, guest self-mute
+ await H.evaluate(()=>closePops());await H.tap('#stg .tl[data-sid] .gmic');await A.waitForFunction(()=>S.gstream.getAudioTracks()[0].enabled===false,null,{timeout:8000});
+ await A.waitForSelector('#stg .tl.micoff');ok(true,'host mutes guest mic → guest audio track disabled + 🔇 shown');await A.waitForTimeout(400);await A.screenshot({path:`${OUT}/13_guest_mic_muted.png`});
+ await A.tap('#stg .tl[data-sid] .gmic');await A.waitForSelector('.toast:has-text("host muted your mic")');ok(await A.evaluate(()=>!S.gstream.getAudioTracks()[0].enabled),'guest cannot unmute a host mute');
+ await H.tap('#stg .tl[data-sid] .gmic');await A.waitForFunction(()=>S.gstream.getAudioTracks()[0].enabled);ok(true,'host unmutes guest mic');
+ await A.tap('#stg .tl[data-sid] .gmic');await H.waitForSelector('#stg .tl.micoff');await A.waitForFunction(()=>!S.gstream.getAudioTracks()[0].enabled,null,{timeout:5000});ok(true,'guest self-mute shows 🔇 to host');
+ await A.tap('#stg .tl[data-sid] .gmic');await H.waitForFunction(()=>!document.querySelector('#stg .tl.micoff'));ok(true,'guest self-unmute');
+ // collapse busy-room join notices
+ await H.evaluate(()=>{const f=sock.listeners('joined')[0];for(let i=0;i<6;i++)f({user:{username:'fake'+i,display_name:'Fan '+i}})});
+ ok(await H.evaluate(()=>[...document.querySelectorAll('#lchat p.join')].some(p=>/Fan 0\s+and 5 others joined/.test(p.textContent))),'6 quick joins collapse to "Fan 0 and 5 others joined"');
  await join(B);await B.waitForFunction(()=>{const v=document.querySelector('#stg .tl[data-sid] video.vfg');return document.querySelector('#stg').dataset.n=='2'&&v&&v.videoWidth>0},null,{timeout:30000});ok(true,'late viewer B sees host + guest split');
  const bAud=await B.evaluate(()=>!!document.querySelector('#stg .tl[data-sid] video.vfg').srcObject.getAudioTracks()[0]);ok(bAud,'viewer receives guest audio track');
  await H.evaluate(()=>closePops());await shot(H,'05_host_split_2');await shot(A,'06_guest_split_2');await shot(B,'07_viewer_split_2');
@@ -55,6 +65,16 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
  // gift to guest
  const d0=await A.evaluate(()=>api('/api/me').then(m=>m.diamonds));await B.tap('.ucbtn:has-text("Gift")');await B.waitForSelector('.gto');const k=await B.evaluate(()=>GIFTS.findIndex(g=>g[2]>=10&&g[2]<=50&&g[5]==null));await B.evaluate(k=>sendGift(k),k);
  await A.waitForFunction(d0=>api('/api/me').then(m=>m.diamonds>d0),d0,{timeout:10000,polling:500});ok(true,'gift sent to guest credits the guest');await B.evaluate(()=>closePops());
+ // gift animations: small gift twice -> combo x2 banner; big gift -> full-screen show on host + viewers, then clears
+ await H.waitForTimeout(3500);await H.waitForFunction(()=>!document.querySelector('.gbn'),null,{timeout:8000});const ks=await B.evaluate(()=>GIFTS.findIndex(g=>g[0]=='roses'));await B.evaluate(k=>{sendGift(k);setTimeout(()=>sendGift(k),500)},ks);
+ await H.waitForFunction(()=>[...document.querySelectorAll('.gbn .gbx')].some(e=>e.textContent=='x2'),null,{timeout:8000});ok(true,'host sees combo banner x2');
+ ok(await A.evaluate(()=>[...document.querySelectorAll('.gbn .gbx')].some(e=>e.textContent=='x2')),'guest sees combo banner x2');await H.waitForTimeout(600);await H.screenshot({path:`${OUT}/11_gift_banner_combo.png`});
+ await H.waitForFunction(()=>!document.querySelector('.gbn'),null,{timeout:8000});
+ const kb=await B.evaluate(()=>GIFTS.findIndex(g=>g[0]=='firetruck'));await B.evaluate(k=>sendGift(k),kb);
+ await H.waitForSelector('.gfx-big',{timeout:8000});await A.waitForSelector('.gfx-big',{timeout:8000});ok(true,'big gift full-screen animation on host and guest');
+ const fr=[];const t0=Date.now();while(Date.now()-t0<3000){const f=`/tmp/gfxframes/${String(fr.length).padStart(3,'0')}.png`;fs.mkdirSync('/tmp/gfxframes',{recursive:true});await H.screenshot({path:f,scale:'css'});fr.push(f);if(fr.length==6)fs.copyFileSync(f,`${OUT}/12_big_gift_fullscreen.png`)}
+ const np=await H.$$eval('.gsp',e=>e.length).catch(()=>0);console.log('  frames',fr.length);
+ await H.waitForFunction(()=>!document.querySelector('.gfx-big'),null,{timeout:8000});await A.waitForFunction(()=>!document.querySelector('.gfx-big'),null,{timeout:8000});ok(true,'big gift animation clears');
  // 3rd and 4th person: request + accept, invite
  await B.tap('#gbtn');await H.waitForSelector('.greq .btn.pri');await H.tap('.greq .btn.pri');await H.waitForFunction(()=>document.querySelector('#stg').dataset.n=='3',null,{timeout:15000});
  await H.waitForFunction(()=>[...document.querySelectorAll('#stg .tl[data-sid] video.vfg')].every(v=>v.videoWidth>0),null,{timeout:30000});ok(true,'3 people: equal 2x2 grid with invite seat');
@@ -68,7 +88,19 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
  await H.evaluate(u=>userCard(u),au);await H.tap('.ucm:has-text("Mute in chat")');await A.waitForSelector('.toast:has-text("muted you")');await A.evaluate(()=>{$('#ci').value='muted msg';sendChat()});await H.waitForTimeout(1200);
  ok(!(await H.$('#lchat p:has-text("muted msg")')),'muted viewer cannot chat');
  await H.tap('#stg .tl[data-sid] .gx');await H.waitForFunction(()=>document.querySelector('#stg').dataset.n=='3');ok(true,'host removes a guest via tile ✕');
- await H.evaluate(u=>userCard(u),cu);await H.tap('.ucm:has-text("Kick")');await C.waitForFunction(()=>S.route!='viewer',null,{timeout:10000});ok(true,'kicked user removed');
+ // badges + bouncer
+ await H.evaluate(u=>userCard(u),bu);await H.waitForSelector('.ucb .bf');const bb=await H.$eval('.ucb',e=>e.textContent);ok(/Top fan #1/.test(bb)&&/New/.test(bb),'card badges: '+bb);
+ await H.tap('.ucm:has-text("Make bouncer")');await B.waitForSelector('.toast:has-text("bouncer")');await B.evaluate(u=>userCard(u),cu);await B.waitForSelector('.ucm:has-text("Kick")');
+ const bc=await B.$$eval('.ucard button',b=>b.map(x=>x.textContent.trim()).join('|'));ok(/Mute in chat/.test(bc)&&/Kick/.test(bc)&&!/Invite/.test(bc),'bouncer card has mute/kick: '+bc.replace(/\s+/g,' '));await B.waitForTimeout(400);await B.screenshot({path:`${OUT}/14_bouncer_card.png`});
+ await B.tap('.ucm:has-text("Kick")');await C.waitForFunction(()=>S.route!='viewer',null,{timeout:10000});ok(true,'bouncer kicks user');
  const rj=await C.evaluate(id=>new Promise(r=>sock.emit('join',{id},r)),sid);ok(/removed/.test(rj.error||''),'kicked user cannot rejoin');
  await H.waitForFunction(()=>document.querySelector('#stg').dataset.n=='2');ok(true,'grid shrinks back to 2 when guest kicked');
- await H.evaluate(()=>endLive());await H.waitForSelector('.sum');ok(!errs.length,'no page errors '+errs.join('|'));await br.close();console.log('LIVEROOM PASS')})().catch(e=>{console.error(e);process.exit(1)});
+ await H.evaluate(()=>endLive());await H.waitForSelector('.sum');const sm=await H.$eval('.sum',e=>e.innerText);
+ ok(/GUESTS/.test(sm)&&/Alex Viewer/.test(sm)&&/TOP GIFTERS/.test(sm)&&/Bree/.test(sm)&&/Viewers/.test(sm)&&/New followers/.test(sm),'end summary lists guests, per-guest diamonds, top gifters, viewers');
+ await H.screenshot({path:`${OUT}/15_end_summary.png`,fullPage:true});
+ // bans persist into the host's next stream
+ await H.goto(URL+'#/live');await H.waitForTimeout(500);await H.goto(URL+'#/golive');await H.waitForFunction(()=>S.stream,null,{timeout:20000});await H.click('#glb');await H.waitForFunction(()=>S.live?.id);const sid2=await H.evaluate(()=>S.live.id);
+ const rj2=await C.evaluate(id=>new Promise(r=>sock.emit('join',{id},r)),sid2);ok(/removed/.test(rj2.error||''),'kick persists into next stream');
+ await A.goto(URL+'#/live');await A.goto(URL+'#/live/view/'+sid2);await A.waitForSelector('#ci');await A.evaluate(()=>{$('#ci').value='still muted?';sendChat()});await A.waitForSelector('.toast:has-text("muted you")');ok(true,'chat mute persists into next stream');
+ await H.evaluate(()=>endLive(true));await H.goto(URL+'#/live/tools/roombans');await H.waitForSelector(`.pli[href="#/u/${cu}"]`);await H.screenshot({path:`${OUT}/16_room_bans.png`});ok(true,'host sees Room Bans list');
+ await H.click(`.pli[href="#/u/${cu}"] .btn`);await H.waitForTimeout(800);ok(!(await H.$(`.pli[href="#/u/${cu}"]`)),'host unbans user');ok(!errs.length,'no page errors '+errs.join('|'));await br.close();console.log('LIVEROOM PASS')})().catch(e=>{console.error(e);process.exit(1)});
