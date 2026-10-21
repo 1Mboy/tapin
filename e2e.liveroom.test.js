@@ -17,9 +17,18 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
  await signup(H,hu,'f','Hana Host');await signup(A,au,'m','Alex Viewer');await signup(B,bu,'f','Bree');await signup(C,cu,'m','Cal');ok(true,'4 test users signed up');
  await H.goto(URL+'#/golive');await H.waitForFunction(()=>S.stream,null,{timeout:20000});await H.fill('#gt','Live room test');await H.click('#glb');await H.waitForFunction(()=>S.live?.id,null,{timeout:15000});
  const sid=await H.evaluate(()=>S.live.id);ok(sid>0,'host live #'+sid);
+ const FSO=process.env.FS_OUT||'shots/fullscreen';fs.mkdirSync(FSO,{recursive:true});
+ const solo=async(p,sel,who)=>{await p.waitForFunction(s=>{const v=document.querySelector(s);return v&&v.videoWidth>0},sel,{timeout:30000});await p.waitForTimeout(600);
+  const r=await p.evaluate(s=>{const v=document.querySelector(s),b=v.getBoundingClientRect(),st=document.querySelector('#stg');
+   const vw=v.videoWidth,vh=v.videoHeight,sc=Math.max(b.width/vw,b.height/vh);return{n:st.dataset.n,tiles:st.querySelectorAll('.tl').length,fit:getComputedStyle(v).objectFit,
+   x:b.left,y:b.top,w:b.width,h:b.height,iw:innerWidth,ih:innerHeight,pw:vw*sc,ph:vh*sc}},sel);
+  ok(r.n=='1'&&r.tiles==1,who+': solo stage has exactly 1 tile (no empty seat counted)');
+  ok(r.fit=='cover'&&r.x<=1&&r.y<=1&&r.w>=r.iw-1&&r.h>=r.ih-1&&r.pw>=r.iw-1&&r.ph>=r.ih-1,who+': solo video fills viewport edge-to-edge '+JSON.stringify(r))};
+ await solo(H,'#bv','host');await H.screenshot({path:FSO+'/01_solo_host.png'});console.log('  📸',FSO+'/01_solo_host.png');
  const mirror=await H.evaluate(()=>getComputedStyle(document.querySelector('#bv')).transform);ok(mirror.includes('-1'),'host own preview is mirrored');
  const join=async(p)=>{await p.goto(URL+'#/live/view/'+sid);await p.waitForFunction(()=>{const v=document.querySelector('#rv');return v&&v.videoWidth>0},null,{timeout:30000})};
  await join(A);ok(true,'viewer A watching host video');
+ await solo(A,'#rv','viewer');await A.screenshot({path:FSO+'/02_viewer_solo_host.png'});console.log('  📸',FSO+'/02_viewer_solo_host.png');
  const rvT=await A.evaluate(()=>getComputedStyle(document.querySelector('#rv')).transform);ok(rvT=='none','viewer sees host un-mirrored');
  // 1) host taps viewer: join notice, viewer strip, chat name
  await H.waitForSelector(`#lchat p.join[data-u="${au}"]`,{timeout:10000});ok(true,'host sees "Alex Viewer joined" line');
@@ -42,6 +51,7 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
  await H.waitForFunction(()=>document.querySelector('#stg').dataset.n=='2',null,{timeout:15000});
  await H.waitForFunction(()=>{const v=document.querySelector('#stg .tl[data-sid] video.vfg');return v&&v.videoWidth>0},null,{timeout:30000});ok(true,'host shows 2-person split screen with guest video');
  const geo=await H.evaluate(()=>[...document.querySelectorAll('#stg .tl')].map(t=>{const r=t.getBoundingClientRect();return [r.width|0,r.height|0]}));ok(geo.length==2&&geo.every(([w,h])=>w>=388&&h>=400),'tiles fill screen halves '+JSON.stringify(geo));
+ await H.waitForTimeout(900);await H.screenshot({path:FSO+'/03_host_with_1_guest.png'});console.log('  📸',FSO+'/03_host_with_1_guest.png');
  // AUDIO: host receives guest audio
  const au1=await H.evaluate(async()=>{const v=document.querySelector('#stg .tl[data-sid] video.vfg');const t=v.srcObject.getAudioTracks()[0];if(!t)return{has:false};
    const ac=new AudioContext();const an=ac.createAnalyser();ac.createMediaStreamSource(new MediaStream([t])).connect(an);let mx=0;for(let i=0;i<30;i++){await new Promise(r=>setTimeout(r,100));const d=new Float32Array(2048);an.getFloatTimeDomainData(d);mx=Math.max(mx,Math.sqrt(d.reduce((a,x)=>a+x*x,0)/d.length))}ac.close();

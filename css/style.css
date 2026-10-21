@@ -174,8 +174,8 @@ select{width:auto}h1,h2,h3{font-weight:800}h4{font-size:12px;letter-spacing:.08e
  .trow{grid-template-columns:repeat(4,1fr);gap:8px}.lcols{grid-template-columns:1fr}.tgrid{grid-template-columns:repeat(2,1fr);gap:10px}.ann{order:2}.anl{flex-direction:row;overflow:auto}.anb{min-width:230px}.tabs2{gap:14px}.ftabs{gap:8px}
  .tools{grid-template-columns:1fr}.tools:not(.menuonly) .tside{display:none}.tools.menuonly .tbody{display:none}.gcols{grid-template-columns:1fr}
  body.immersive .top,body.immersive .tabbar{display:none}body.immersive #view{padding:0}
- body.immersive .vmain{border:0;border-radius:0;height:100vh;position:relative}body.immersive .vhd{position:absolute;top:0;left:0;right:0;z-index:5;background:linear-gradient(rgba(0,0,0,.7),transparent);border:0;padding:10px 12px;gap:8px}
- .vst{gap:8px;font-size:11px}.vst span:nth-child(n+3){display:none}.vbody{display:block;min-height:0}.vstage{height:100vh;min-height:0}.vside{display:none}.also{display:none}.topg{top:96px;transform:scale(.85);transform-origin:top right}
+ body.immersive .vmain{border:0;border-radius:0;height:100vh;height:100dvh;position:relative}body.immersive .vhd{position:absolute;top:0;left:0;right:0;z-index:5;background:linear-gradient(rgba(0,0,0,.7),transparent);border:0;padding:10px 12px;gap:8px}
+ .vst{gap:8px;font-size:11px}.vst span:nth-child(n+3){display:none}.vbody{display:block;min-height:0}.vstage{height:100vh;height:100dvh;min-height:0}.vside{display:none}.also{display:none}.topg{top:96px;transform:scale(.85);transform-origin:top right}
  .vchat{left:10px;right:10px;bottom:calc(12px + env(safe-area-inset-bottom));max-width:none}.lchat{max-height:34vh}.vleft{top:auto;bottom:46%;transform:none;left:10px}.vb{width:42px;height:42px}
  .bc .vside{display:none}
  .gl{grid-template-columns:1fr}.glv{aspect-ratio:auto;height:52vh}
@@ -341,3 +341,7 @@ video.vbg{position:absolute;inset:-6%;width:112%;height:112%;object-fit:cover;fi
 .tl.micoff .tn2{border-color:#ff5d6c}.tn2 .mi{font-style:normal}
 .ucb .bv{background:#1e90ff;color:#fff}.ucb .bf{background:#3a2a00;color:#f5c542;border:1px solid #f5c542}.ucb .bb{background:#0b3d91;color:#cfe0ff}.ucb .bn{background:#0d2a1a;color:#8ff0b0}
 .sumh{margin:16px 0 6px;text-align:left;color:var(--gold)}.suml{display:flex;flex-direction:column;gap:6px;width:100%}.sumr{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:12px;background:#0d1422;color:inherit;min-height:48px}.sumr .sp{flex:1}
+
+/* fullscreen-fix: live room fills the whole screen on iOS; video always covers in live tiles */
+@media(max-width:820px){.lvx{height:100vh;height:100dvh}}
+.stg .tl>video.vfg{object-fit:cover!important}.stg .tl>video.vbg{display:none!important}
