@@ -40,7 +40,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  // co-host
  await A.click('#gbtn');await B.waitForSelector('.greq');await shot(B,'cohost_request');await B.click('.greq .btn.pri');
  await B.waitForFunction(()=>{const v=document.querySelector('#gv');return v&&v.videoWidth>0},null,{timeout:30000});ok(true,'host receives guest video over WebRTC');
- await A.waitForSelector('#gbox.on');await shot(A,'cohost_guest_view');await shot(B,'cohost_host_view');
+ await A.waitForSelector('#gbox.on');await A.waitForFunction(()=>document.querySelector('#gv').videoWidth>0,null,{timeout:15000});ok(true,'guest sees own camera preview');await shot(A,'cohost_guest_view');await shot(B,'cohost_host_view');
  const ice=await A.evaluate(()=>api('/api/ice').then(r=>r.iceServers.some(s=>JSON.stringify(s.urls).includes('turn'))));log('TURN servers offered: '+ice);
  await B.click('#gbox .gx');await A.waitForFunction(()=>!document.querySelector('#gbox.on'));ok(true,'host removes guest');
  await B.click('button:has-text("End")');await B.waitForSelector('.sum');log('stream ended');
@@ -52,8 +52,8 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  ok(!(await A.evaluate(()=>api('/api/map?dist=any').then(d=>JSON.stringify(d)))).includes('30.2849'),'exact coordinates never returned');
  await A.click('.mpin');await A.waitForSelector('.up');ok(true,'tapping a pin opens the profile');
  // match + message
- const voteTo=async(p,target)=>{await p.goto(URL+'#/match');for(let i=0;i<120;i++){await p.waitForSelector('#mcard, .mw .empty');if(!await p.$('#mcard'))return false;
-  const h=await p.getAttribute('.minfo a','href');if(h.endsWith('/'+target)){await p.click('.mb.yes');return true}await p.click('.mb.no');await p.waitForTimeout(300)}return false};
+ const voteTo=async(p,target)=>{await p.goto(URL+'#/match');const seen=[];for(let i=0;i<120;i++){await p.waitForSelector('#mcard, .mw .empty');if(!await p.$('#mcard')){console.log('match pool ran out; saw',seen.join(','),await p.evaluate(()=>JSON.stringify(S.filters)));return false}
+  const h=await p.getAttribute('.minfo a','href');seen.push(h.split('/').pop());if(h.endsWith('/'+target)){await p.click('.mb.yes');return true}await p.click('.mb.no');await p.waitForTimeout(300)}return false};
  for(const p of [A,B])p.evaluate(()=>{S.filters={gender:'',min:18,max:99,dist:'any'}});
  await A.evaluate(()=>{S.filters.dist='any'});await B.evaluate(()=>{S.filters.dist='any'});
  ok(await voteTo(A,ub),'A liked B in Match');ok(await voteTo(B,ua),'B liked A');await B.waitForSelector('.mpop');ok(true,'match popup');
@@ -62,7 +62,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  // premium
  await A.goto(URL+'#/premium');await A.waitForSelector('.paybtn');await shot(A,'premium_buy');
  if(process.env.STRIPE){await A.click('.paybtn');await A.waitForURL(/checkout\.stripe\.com/,{timeout:30000});await A.waitForTimeout(3000);
-  ok(await A.isVisible('text=Sandbox').catch(()=>false),'Stripe checkout is in Sandbox/test mode');await A.fill('#email',ua+'@example.com');await A.click('text=Card').catch(()=>{});await A.waitForSelector('#cardNumber',{timeout:30000});await A.fill('#cardNumber','4242424242424242');await A.fill('#cardExpiry','12/34');await A.fill('#cardCvc','123');
+  ok(await A.isVisible('text=Sandbox').catch(()=>false),'Stripe checkout is in Sandbox/test mode');await A.fill('#email',ua+'@example.com');await A.evaluate(()=>document.querySelector('[data-testid=card-accordion-item-button]')?.click());await A.waitForSelector('#cardNumber',{timeout:30000});await A.fill('#cardNumber','4242424242424242');await A.fill('#cardExpiry','12/34');await A.fill('#cardCvc','123');
   await A.fill('#billingName','Test User').catch(()=>{});await A.fill('#billingPostalCode','78701').catch(()=>{});const l=await A.$('#enableStripePass');if(l&&await l.isChecked())await l.uncheck({force:true}).catch(()=>{});
   await A.click('.SubmitButton');await A.waitForURL(u=>u.toString().startsWith(URL),{timeout:60000});
   await A.waitForFunction(()=>api('/api/me').then(m=>m.premium),null,{timeout:30000,polling:2000});ok(true,'Premium activated via Stripe TEST checkout + webhook');
