@@ -295,17 +295,28 @@ app.post('/api/me/password',authLimit,auth,async(req,res)=>{const{current,next}=
   if(!await bcrypt.compare(current,req.user.pass))return res.status(403).json({error:'Current password is wrong'});
   db.prepare('UPDATE users SET pass=? WHERE id=?').run(await bcrypt.hash(next,12),req.user.id);killSessions(req.user.id);
   req.session.regenerate(()=>{req.session.uid=req.user.id;res.json({ok:1})})});
-async function sendMail(to,subject,text){ // Resend (RESEND_API_KEY + MAIL_FROM). Without it, nothing is sent.
-  if(!process.env.RESEND_API_KEY)return false;
-  try{const r=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+process.env.RESEND_API_KEY,'Content-Type':'application/json'},
-    body:JSON.stringify({from:process.env.MAIL_FROM||'Tap.in <onboarding@resend.dev>',to:[to],subject,text}),signal:AbortSignal.timeout(8000)});return r.ok}catch(e){console.error('mail failed:',e.message);return false}}
+const MAIL_ON=()=>!!(process.env.AGENTMAIL_API_KEY||process.env.RESEND_API_KEY);
+async function sendMail(to,subject,text,html){ // AgentMail (AGENTMAIL_API_KEY + MAIL_INBOX) preferred, Resend fallback. Without either, nothing is sent.
+  try{if(process.env.AGENTMAIL_API_KEY){const inbox=encodeURIComponent(process.env.MAIL_INBOX||'tapin@mail.grokbot.com');
+      const r=await fetch(`https://api.agentmail.to/v0/inboxes/${inbox}/messages/send`,{method:'POST',headers:{Authorization:'Bearer '+process.env.AGENTMAIL_API_KEY,'Content-Type':'application/json'},
+        body:JSON.stringify({to:[to],subject,text,html}),signal:AbortSignal.timeout(8000)});if(!r.ok)console.error('mail failed: agentmail',r.status);return r.ok}
+    if(!process.env.RESEND_API_KEY)return false;
+    const r=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+process.env.RESEND_API_KEY,'Content-Type':'application/json'},
+      body:JSON.stringify({from:process.env.MAIL_FROM||'Tap.in <onboarding@resend.dev>',to:[to],subject,text,html}),signal:AbortSignal.timeout(8000)});return r.ok}catch(e){console.error('mail failed:',e.message);return false}}
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const resetHtml=(name,link)=>`<div style="background:#000;padding:32px 12px;font-family:Arial,Helvetica,sans-serif"><table role="presentation" width="100%" style="max-width:480px;margin:0 auto;background:#0b0b0f;border:1px solid #d4af37;border-radius:14px"><tr><td style="padding:28px">
+<h1 style="margin:0 0 4px;color:#d4af37;font-size:26px">Tap.in</h1><div style="height:3px;width:56px;background:#1e90ff;margin-bottom:22px"></div>
+<p style="color:#e8e8e8;font-size:16px">Hi ${esc(name)},</p><p style="color:#bdbdbd;font-size:15px">Tap the button to choose a new password. The link works for <b style="color:#d4af37">1 hour</b>.</p>
+<p style="text-align:center;margin:28px 0"><a href="${link}" style="background:#d4af37;color:#000;text-decoration:none;font-weight:bold;padding:14px 28px;border-radius:10px;border:2px solid #1e90ff;display:inline-block">Reset password</a></p>
+<p style="color:#8a8a8a;font-size:12px">Or paste this link: <a href="${link}" style="color:#4da3ff;word-break:break-all">${link}</a></p>
+<p style="color:#8a8a8a;font-size:12px">If you didn't ask for this, ignore this email.</p></td></tr></table></div>`;
 const sha=t=>crypto.createHash('sha256').update(t).digest('hex');
 app.post('/api/password/forgot',authLimit,async(req,res)=>{const login=req.body?.login;if(typeof login!=='string'||!login.trim()||login.length>254)return res.status(400).json({error:'Enter your email or username'});
   const u=db.prepare('SELECT * FROM users WHERE email=? OR username=?').get(login.trim(),login.trim());
   if(u&&u.email){const t=crypto.randomBytes(32).toString('hex');db.prepare('DELETE FROM pw_resets WHERE user_id=?').run(u.id);
     db.prepare('INSERT INTO pw_resets(token_hash,user_id,expires_at) VALUES(?,?,?)').run(sha(t),u.id,Date.now()+36e5);
-    await sendMail(u.email,'Reset your Tap.in password',`Hi ${u.display_name||u.username},\n\nTap this link to choose a new password (valid for 1 hour):\n${BASE_URL}/#/reset/${t}\n\nIf you didn't ask for this, ignore this email.`)}
-  res.json({ok:1,mail:!!process.env.RESEND_API_KEY})}); // same answer whether or not the account exists
+    const link=`${BASE_URL}/#/reset/${t}`,nm=u.display_name||u.username;await sendMail(u.email,'Reset your Tap.in password',`Hi ${nm},\n\nTap this link to choose a new password (valid for 1 hour):\n${link}\n\nIf you didn't ask for this, ignore this email.`,resetHtml(nm,link))}
+  res.json({ok:1,mail:MAIL_ON()})}); // same answer whether or not the account exists
 app.post('/api/password/reset',authLimit,async(req,res)=>{const{token,password}=req.body||{};if(typeof token!=='string'||typeof password!=='string')return res.status(400).json({error:'Invalid link'});
   if(password.length<8||password.length>72)return res.status(400).json({error:'Password must be 8-72 characters'});
   const r=db.prepare('SELECT * FROM pw_resets WHERE token_hash=?').get(sha(token));if(!r||r.used||r.expires_at<Date.now())return res.status(400).json({error:'This reset link is invalid or expired. Ask for a new one.'});
