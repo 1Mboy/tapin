@@ -145,7 +145,7 @@ function giftPop(k){const f=document.createElement("div");f.className="gpop";f.i
 function floatHeart(){const box=$(".hearts");if(!box)return;const h=document.createElement("i");h.className="fh";h.textContent=["💙","💛","🤍"][Math.random()*3|0];h.style.left=(70+Math.random()*20)+"%";box.append(h);setTimeout(()=>h.remove(),1800)}
 
 // ---------------- router ----------------
-async function render(){if(!S.me)return gate();shell();closePops();
+async function render(){const rt=location.hash.match(/^#\/reset\/([a-f0-9]{64})$/);if(rt)return resetPw(rt[1]);if(!S.me)return gate();shell();closePops();
  const [a,b,c]=location.hash.replace(/^#\/?/,"").split("/").map(decodeURIComponent);const r=a||"live";
  if(S.route=="viewer"){if(S.guestMine||S.guestPending)sock?.emit("guest-cancel");S.guestMine=S.guestPending=false;if(!(r=="live"&&b=="view")){sock?.emit("leave");closePeers();S.view=null}else closeG()}
  if(S.live&&r!="golive"){if(!confirm("End your live stream?")){location.hash="#/golive";return}await endLive(true)}
@@ -153,7 +153,8 @@ async function render(){if(!S.me)return gate();shell();closePops();
  try{if(r=="live"){if(b=="view")return await viewer(+c);if(b=="search")return search();if(b=="map")return mapView("live");if(b=="tools")return await tools(c||"gifters");return liveFeed()}
   if(r=="golive")return golive();if(r=="discover")return b=="map"?await mapView("discover"):await discover(b||"near");if(r=="match")return await match();if(r=="chats")return chats(b);
   if(r=="profile")return await profile();if(r=="u")return await userProfile(b);if(r=="friends")return await friends(b||"requests");if(r=="pets")return await pets();if(r=="luv")return await luv();
-  if(r=="gold")return gold();if(r=="diamonds")return await diamonds();if(r=="premium")return premium();return liveFeed()}catch(e){console.error(e);toast(e.message)}}
+  if(r=="gold")return gold();if(r=="diamonds")return await diamonds();if(r=="premium")return premium();return liveFeed()}catch(e){console.error(e);toast(e.message);if(e.message=="Please log in"){setMe(null);return gate()}
+  V(`<div class="empty"><div class="ei">⚠️</div><b>Something went wrong</b><p class="muted">${esc(e.message||"Please check your connection.")}</p><button class="btn pri" onclick="render()">Try again</button></div>`)}}
 addEventListener("hashchange",render);
 
 // ---------------- LIVE feed ----------------
@@ -225,7 +226,11 @@ async function getCam(face,audio=true){let st;try{st=await navigator.mediaDevice
 function fitVideo(v){if(!v||!v.videoWidth)return;const box=v.parentElement,cw=box.clientWidth,ch=box.clientHeight;if(!cw||!ch)return;const va=v.videoWidth/v.videoHeight,ca=cw/ch,r=Math.max(va,ca)/Math.min(va,ca);
  const contain=r>1.15;box.classList.toggle("fitc",contain);v.style.objectFit=contain?"contain":"cover";box.dataset.fit=contain?"contain":"cover"}
 function attachV(v,stream,mirror){if(!v)return;v.srcObject=stream;const bg=v.parentElement.querySelector(":scope>.vbg");if(bg){bg.srcObject=stream;bg.muted=true;bg.play?.().catch(()=>{})}
- v.parentElement.classList.toggle("mirror",!!mirror);v.classList.add("on");const f=()=>fitVideo(v);v.onloadedmetadata=f;v.onresize=f;setTimeout(f,300);v.play?.().catch(()=>{v.muted=true;v.play().catch(()=>{})})}
+ v.parentElement.classList.toggle("mirror",!!mirror);v.classList.add("on");const f=()=>fitVideo(v);v.onloadedmetadata=f;v.onresize=f;setTimeout(f,300);v.play?.().catch(()=>{v.muted=true;v.play().catch(()=>{});if(v.id=="rv")unmuteBtn(v)})}
+// iPhone Safari blocks autoplay with sound: start muted, then one tap anywhere (or the button) turns sound on.
+function unmuteBtn(v){if(v.parentElement.querySelector(".unmute"))return;const b=document.createElement("button");b.className="unmute";b.textContent="🔇 Tap for sound";v.parentElement.append(b);
+ const on=()=>{v.muted=false;v.play().catch(()=>{});b.remove();document.removeEventListener("touchend",on,true);document.removeEventListener("click",on,true)};
+ b.onclick=on;document.addEventListener("touchend",on,true);document.addEventListener("click",on,true)}
 addEventListener("resize",()=>$$("video.vfg").forEach(fitVideo));
 const vids=(id,muted)=>`<video class="vbg" autoplay muted playsinline aria-hidden="true"></video><video id="${id}" class="vfg" autoplay playsinline ${muted?"muted":""}></video>`;
 const gboxH=`<div class="gbox2" id="gbox"><video class="vbg" autoplay muted playsinline></video><video id="gv" class="vfg" autoplay playsinline></video><small id="gname"></small><button class="gx" title="End guest" onclick="S.live?sock.emit('guest-end'):guestLeave()">✕</button></div>`;
@@ -246,7 +251,7 @@ async function viewer(id){setNav("viewer","Live");connect();if(!S.streams.length
  else V(`<div class="vw"><div class="vmain card"><div class="vhd"><a class="vu" href="#/u/${esc(u.username)}">${av(u,40)}<span><b>${nm(u)}</b>
    <span class="vst"><span>💎 <b data-st="diamonds">${fmt(st.diamonds)}</b></span><span>⭐ <b data-st="fans">${fmt(st.fans)}</b></span><span>♥ <b data-st="hearts">${fmt(st.hearts)}</b></span><span>👁 <b data-st="viewers">${fmt(st.viewers)}</b></span></span></span></a>
   <span class="sp"></span><button class="btn sm out" id="favb" onclick="favToggle('${esc(u.username)}')">${r.following?"★ Favorited":"☆ Favorite"}</button><button class="btn sm out" onclick="go('#/live')">Exit Stream</button></div>
-  <div class="vbody"><div class="vstage">${stage}<button class="vb rep" onclick="toast('Thanks — our team will review this stream')" title="Report">⚠</button><div class="topg" id="topg">${topHtml(r.top)}</div>
+  <div class="vbody"><div class="vstage">${stage}<button class="vb rep" onclick="reportSheet(null,S.view?.id)" title="Report">⚠</button><div class="topg" id="topg">${topHtml(r.top)}</div>
    <div class="vleft"><button class="vb xp" onclick="xpInfo()" title="Your level"><i>${S.me.xp.n}</i><small>XP</small></button><button class="vb hb" onclick="sock.emit('heart')" title="Like">♥</button>
     <button class="vb" id="gbtn" onclick="guestReq()" title="Join as guest">👤+</button><button class="vb vip" onclick="S.me.premium?(S.gtab='Exclusive',S.gpage=0,redrawG()):go('#/premium')" title="VIP">VIP</button></div></div>
   <aside class="vside">${gpanel()}<div class="dchat"><div id="lchat" class="lchat d"><p class="sys">🛡 Let's keep Live fun! Nudity or obscene behavior results in account deletion.</p><p class="sys">Welcome to ${nm(u)}'s stream! 💙</p></div>
@@ -255,7 +260,7 @@ async function viewer(id){setNav("viewer","Live");connect();if(!S.streams.length
  S.guest=r.guest?.user||null;S.guestMine=false;S.guestPending=false;updGuestUI();swipe($(".lvx")||$(".vstage"))}
 function viewerMore(){const v=S.view;sheet(`<div class="shd"><b>More</b><button class="x" onclick="closePops()">✕</button></div><div class="pm">
  <a onclick="closePops();xpInfo()">⭐ My level (Lv ${S.me.xp?.n||1})</a><a onclick="closePops();go('#/live/tools/gifters')">🏆 Top gifters</a><a onclick="closePops();guestReq()">👤 ${S.guestMine?"Leave guest spot":"Request to join as guest"}</a>
- <a onclick="closePops();${S.me.premium?"S.gtab='Exclusive';S.gpage=0;giftSheet()":"go('#/premium')"}">🚀 VIP gifts</a><a onclick="closePops();nextStream(1)">⌄ Next stream</a><a onclick="closePops();toast('Thanks — our team will review this stream')">⚠ Report stream</a></div>`)}
+ <a onclick="closePops();${S.me.premium?"S.gtab='Exclusive';S.gpage=0;giftSheet()":"go('#/premium')"}">🚀 VIP gifts</a><a onclick="closePops();nextStream(1)">⌄ Next stream</a><a onclick="closePops();reportSheet(null,S.view?.id)">⚠ Report stream</a></div>`)}
 
 function swipe(el){if(!el)return;let y0=null;el.addEventListener("touchstart",e=>y0=e.touches[0].clientY,{passive:true});el.addEventListener("touchend",e=>{if(y0==null)return;const d=y0-e.changedTouches[0].clientY;if(Math.abs(d)>70)nextStream(d>0?1:-1);y0=null})}
 function nextStream(dir){const l=S.streams,i=l.findIndex(s=>s.id==S.view?.id);if(l.length<2)return toast("No other streams live right now");const n=l[(i+dir+l.length)%l.length];go("#/live/view/"+n.id)}
@@ -386,7 +391,12 @@ async function openDm(n){const r=await api(`/api/chats/${encodeURIComponent(n)}`
  r.messages.forEach(dmAdd);loadChatList()}
 function dmAdd(m){const b=$("#bubs");if(!b)return;b.insertAdjacentHTML("beforeend",`<div class="bub ${m.mine?"mine":""}">${esc(m.text)}<small>${tm(m.at)}${m.mine?` <i class="rd">${m.read?"✓✓":"✓"}</i>`:""}</small></div>`);b.scrollTop=1e9}
 function dmSend(){const i=$("#dmi"),t=i.value.trim();if(!t)return;const to=S.dm.user.username;sock.emit("dm",{to,text:t},r=>{if(r?.error)return toast(r.error);dmAdd({mine:true,text:t,at:r.at,read:false});loadChatList()});i.value=""}
-function dmMenu(ev){ev.stopPropagation();const n=S.dm.user.username;popAt(ev,`<div class="pm"><a href="#/u/${esc(n)}">View profile</a><a onclick="blockUser('${esc(n)}')">Block</a></div>`)}
+function dmMenu(ev){ev.stopPropagation();const n=S.dm.user.username;popAt(ev,`<div class="pm"><a href="#/u/${esc(n)}">View profile</a><a onclick="blockUser('${esc(n)}')">Block</a><a onclick="closePops();reportSheet('${esc(n)}')">⚠ Report</a></div>`)}
+const REPORT_REASONS=[["nudity","Nudity or sexual content"],["underage","Under 18"],["harassment","Harassment or bullying"],["hate","Hate speech"],["violence","Violence or threats"],["scam","Scam or fraud"],["spam","Spam / fake account"],["other","Something else"]];
+function reportSheet(username,streamId){sheet(`<div class="shd"><b>Report</b><button class="x" onclick="closePops()">✕</button></div><div class="pad fl"><p class="muted">Reports are private. Our team reviews every one.</p>
+ <label>Reason<select id="rpr">${REPORT_REASONS.map(([v,t])=>`<option value="${v}">${t}</option>`).join("")}</select></label><label>Details (optional)<textarea id="rpd" maxlength="1000" rows="3"></textarea></label>
+ <label class="chk"><input type="checkbox" id="rpb" checked> Also block this person</label><button class="btn pri full" id="rps">Send report</button></div>`);
+ $("#rps").onclick=async()=>{try{await api("/api/report",{method:"POST",body:{username:username||undefined,stream_id:streamId?+streamId:undefined,reason:$("#rpr").value,details:$("#rpd").value,block:$("#rpb").checked}});closePops();toast("Thanks — report sent");if($("#rpb").checked&&S.route=="viewer"){S.view=null;go("#/live")}else if($("#rpb").checked)render()}catch(e){toast(e.message)}}}
 async function blockUser(n){if(!confirm("Block "+n+"?"))return;await api("/api/blocks/"+encodeURIComponent(n),{method:"POST"});toast("Blocked");go("#/chats")}
 // ---------------- Profile (self) ----------------
 const setMe=m=>{S.me=m;if(m){S.coins=m.coins;S.diamonds=m.diamonds}};
@@ -396,6 +406,7 @@ async function profile(){setNav("profile","Profile");setMe(await api("/api/me"))
  V(`<div class="prw"><div class="prl"><div class="card pcard"><div class="pch">${av(m,96)}<div><h2>${nm(m)}${m.age?", "+m.age:""}</h2><small class="muted">@${esc(m.username)} · ${esc(m.city||"Add your city")}</small>
   <div class="pbad">${lvlBadge(m.xp.n)}<i class="rkp">${esc(m.rank.label)}</i>${m.premium?'<i class="rkp prm">🚀 Premium</i>':""}</div></div></div>
   <div class="pcb"><button class="btn pri" onclick="editProfile()">✎ Edit</button><button class="btn out" onclick="go('#/u/${esc(m.username)}')">👁 Preview</button></div></div>
+ <div class="card"><h4 class="pad">MY PHOTOS</h4><div class="pad" id="myph"><span class="muted">Loading…</span></div></div>
  <a class="card premc" href="#/premium"><b>🚀 ${APP_NAME} Premium</b><small>See who likes you, boost your profile & more</small><i>›</i></a>
  <div class="card"><a class="srow" href="#/gold"><span>🪙 Buy coins</span><b class="gold" data-coins>${fmt(m.coins)}</b>›</a><a class="srow" href="#/diamonds"><span>💎 Diamond Rewards</span><b class="dm" data-dia>${fmt(m.diamonds)}</b>›</a>
   <a class="srow" href="#/friends/requests"><span>👥 Friend Requests</span>${fr.requests.length?`<i class="cnt">${fr.requests.length}</i>`:""}›</a><a class="srow" href="#/live/tools/menu"><span>🔧 Streamer tools</span>›</a></div></div>
@@ -406,7 +417,7 @@ async function profile(){setNav("profile","Profile");setMe(await api("/api/me"))
   <h4 class="pad">EMAIL NOTIFICATIONS</h4>${[["email_newsletter","Newsletter"],["email_friends","Friend requests"],["email_luv","Luv"],["email_pets","Pets"]].map(([k,t])=>`<div class="srow"><span>${t}</span>${sw(k,s[k])}</div>`).join("")}
   <h4 class="pad">PREFERENCES</h4><div class="srow"><span>📍 Location<small>${m.has_location?"On · stored approximately (~2 km), never exact":"Off · distance uses your city"}</small></span>${m.has_location?`<button class="btn sm out" onclick="locOff()">Turn off</button>`:`<button class="btn sm pri" onclick="askLocation().then(profile)">Turn on</button>`}</div><div class="srow"><span>Language</span><select onchange="setSet('language',this.value)">${["English","Español","Français"].map(l=>`<option ${s.language==l?"selected":""}>${l}</option>`).join("")}</select></div>
   <div class="srow"><span>Distance units</span><div class="seg sm">${[["km","Km"],["mi","Miles"]].map(([v,t])=>`<b class="${s.units==v?"on":""}" onclick="setSet('units','${v}').then(profile)">${t}</b>`).join("")}</div></div>
-  <a class="srow" onclick="info('support')"><span>❓ Help</span>›</a><a class="srow" onclick="info('privacy')"><span>🔒 Privacy</span>›</a><a class="srow red" onclick="logout()"><span>⏻ Logout</span></a></div></div></div>`)}
+  <a class="srow" onclick="info('support')"><span>❓ Help</span>›</a><a class="srow" onclick="info('privacy')"><span>🔒 Privacy</span>›</a><a class="srow" onclick="pwSheet()"><span>🔑 Change password</span>›</a><a class="srow red" onclick="logout()"><span>⏻ Logout</span></a><a class="srow red" onclick="delAccount()"><span>🗑 Delete account</span></a></div></div></div>`);myPhotos()}
 function editProfile(){const m=S.me;sheet(`<div class="shd"><button class="x" onclick="closePops()">✕</button><b>Edit Profile</b><a class="lnk" onclick="saveProfile()">Save</a></div><div class="pad fl">
  <label class="avup">${av(m,96)}<input type="file" id="pav" accept="image/*" hidden onchange="this.previousElementSibling.outerHTML='<span class=&quot;av&quot; style=&quot;width:96px;height:96px&quot;>📷</span>'"><span class="lnk">Change photo</span></label>
  <label>Display name<input id="pdn" maxlength="40" value="${esc(m.display_name)}"></label><label>About me<textarea id="pbio" maxlength="300" rows="3">${esc(m.bio)}</textarea></label>
@@ -426,10 +437,20 @@ async function userProfile(n){setNav("u","Profile");const u=await api("/api/user
   <button class="btn ${fb[1]}" onclick="friendAct('${esc(u.username)}','${fb[2]}')">${fb[0]}</button><button class="btn out" onclick="luvSend('${esc(u.username)}')" ${u.luv_today?"disabled":""}>💙 ${u.luv_today?"Luv sent":"Send Luv"}</button>
   <button class="btn ${u.is_following?"out":"gold"}" onclick="api('/api/users/${esc(u.username)}/follow',{method:'${u.is_following?"DELETE":"POST"}'}).then(render)">${u.is_following?"★ Favorited":"☆ Favorite"}</button>
   <button class="ib" onclick="upMenu(event,'${esc(u.username)}',${!!u.blocked})">⋮</button></div>`}
- <div class="pad"><h4>ABOUT</h4><p>${u.bio?esc(u.bio):'<span class="muted">No bio yet.</span>'}</p>${u.match?'<p class="gold">💞 You matched!</p>':""}</div></div>`)}
+ <div class="pad"><h4>ABOUT</h4><p>${u.bio?esc(u.bio):'<span class="muted">No bio yet.</span>'}</p>${u.match?'<p class="gold">💞 You matched!</p>':""}</div>
+ ${u.photos?.length?`<div class="pad"><h4>PHOTOS</h4><div class="phgrid">${u.photos.map(p=>`<img src="${esc(p.url)}" alt="" loading="lazy" onclick="photoView('${esc(p.url)}')">`).join("")}</div></div>`:""}</div>`)}
+function photoView(u){sheet(`<div class="shd"><b>Photo</b><button class="x" onclick="closePops()">✕</button></div><img src="${esc(u)}" alt="" style="width:100%;max-height:75vh;object-fit:contain">`)}
+async function myPhotos(){const l=await api("/api/photos/"+encodeURIComponent(S.me.username)).catch(()=>[]);const e=$("#myph");if(!e)return;
+ e.innerHTML=`<div class="phgrid">${l.map(p=>`<div class="phc"><img src="${esc(p.url)}" alt="" loading="lazy" onclick="photoView('${esc(p.url)}')"><button class="phx" onclick="delPhoto(${+p.id})" title="Delete">✕</button></div>`).join("")}${l.length<9?`<label class="phadd">＋<input type="file" accept="image/*" hidden onchange="addPhoto(this)"></label>`:""}</div>`}
+async function addPhoto(inp){const f=inp.files[0];if(!f)return;try{toast("Uploading photo…");const fd=new FormData();const img=await prepImage(f);fd.append("photo",img,img.name||"photo.jpg");await api("/api/me/photos",{method:"POST",body:fd});toast("Photo added");myPhotos()}catch(e){toast(e.message)}}
+async function delPhoto(id){if(!confirm("Delete this photo?"))return;try{await api("/api/me/photos/"+id,{method:"DELETE"});myPhotos()}catch(e){toast(e.message)}}
+async function delAccount(){const pw=prompt("This permanently deletes your account, coins, diamonds, photos and messages.\nEnter your password to confirm:");if(!pw)return;
+ try{await api("/api/me",{method:"DELETE",body:{password:pw}});sock?.disconnect();sock=null;setMe(null);$("#shell")?.remove();location.hash="";toast("Account deleted");gate()}catch(e){toast(e.message)}}
+function pwSheet(){sheet(`<div class="shd"><b>Change password</b><button class="x" onclick="closePops()">✕</button></div><div class="pad fl"><input id="pwc" type="password" placeholder="Current password"><input id="pwn" type="password" placeholder="New password (8+ characters)"><button class="btn pri full" onclick="pwChange()">Save</button></div>`)}
+async function pwChange(){try{await api("/api/me/password",{method:"POST",body:{current:$("#pwc").value,next:$("#pwn").value}});closePops();toast("Password changed")}catch(e){toast(e.message)}}
 async function friendAct(n,a){try{await api("/api/friends/"+encodeURIComponent(n),{method:a=="add"?"POST":"DELETE"});render()}catch(e){toast(e.message)}}
 async function luvSend(n){try{await api("/api/luv/"+encodeURIComponent(n),{method:"POST"});toast("Luv sent 💙");render()}catch(e){toast(e.message)}}
-function upMenu(ev,n,b){ev.stopPropagation();popAt(ev,`<div class="pm"><a onclick="api('/api/${"blocks"}/${n}',{method:'${b?"DELETE":"POST"}'}).then(()=>{toast('${b?"Unblocked":"Blocked"}');render()})">${b?"Unblock":"Block"}</a><a onclick="api('/api/bouncers/${n}',{method:'POST'}).then(()=>toast('Added as bouncer'))">Make bouncer</a></div>`)}
+function upMenu(ev,n,b){ev.stopPropagation();popAt(ev,`<div class="pm"><a onclick="api('/api/${"blocks"}/${n}',{method:'${b?"DELETE":"POST"}'}).then(()=>{toast('${b?"Unblocked":"Blocked"}');render()})">${b?"Unblock":"Block"}</a><a onclick="api('/api/bouncers/${n}',{method:'POST'}).then(()=>toast('Added as bouncer'))">Make bouncer</a><a onclick="closePops();reportSheet('${n}')">⚠ Report</a></div>`)}
 
 // ---------------- Friends ----------------
 async function friends(tab){setNav("friends","Friends");const r=await api("/api/friends");S.freq=r.requests.length;badges();
@@ -465,23 +486,30 @@ async function diamonds(){setNav("diamonds","Diamond Rewards");setMe(await api("
  <div class="bar green"><i style="width:${pct}%"></i></div><small class="muted">${d>=CASHOUT_MIN_DIAMONDS?"You can cash out now!":fmt(CASHOUT_MIN_DIAMONDS-d)+" more 💎 to cash out"}</small>
  <button class="paybtn" ${d>=CASHOUT_MIN_DIAMONDS?"":"disabled"} onclick="payout()">Claim Cash Reward</button><p class="muted">Creates a pending payout request — reviewed and paid manually.</p>
  <h4>PAYOUT HISTORY</h4>${po.length?po.map(p=>`<div class="srow"><span>💎 ${fmt(p.diamonds)} → $${(+p.usd).toFixed(2)}<small>${esc(p.created_at)}</small></span><b>${esc(p.status)}</b></div>`).join(""):'<p class="muted">No payouts yet.</p>'}</div></div>`)}
-async function payout(){if(!confirm(`Request a payout of $${(S.diamonds/DIAMONDS_PER_USD).toFixed(2)}?`))return;try{const r=await api("/api/payouts",{method:"POST"});setMe(r.me);toast("Payout requested (pending)");diamonds()}catch(e){toast(e.message)}}
+async function payout(){const pp=prompt(`Cash out $${(Math.floor(S.diamonds/DIAMONDS_PER_USD*100)/100).toFixed(2)} (${fmt(S.diamonds)} 💎).\nPayPal email to pay you at:`);if(pp==null)return;try{const r=await api("/api/payouts",{method:"POST",body:{paypal:pp.trim()}});setMe(r.me);toast("Payout requested (pending)");diamonds()}catch(e){toast(e.message)}}
 function premium(){setNav("premium","Premium");const on=S.me.premium;V(`<div class="card prem"><div class="phero"><h1>🚀 ${APP_NAME} Premium</h1><p>${on?`Active until ${new Date(S.me.premium_until.replace(" ","T")+"Z").toLocaleDateString()}`:"Stand out and meet more people."}</p></div>
  <div class="pad">${[["👁","See who viewed you","Full list of profile views, anytime"],["♥","See who likes you","Know who liked you before you vote"],["🚀","Profile boost","Shown first in Discover & Match"],["🎁","VIP gifts","Unlock VIP-only gifts in live streams"],["🏅","Premium badge","A 🚀 badge on your profile and tiles"]].map(([i,t,s])=>`<div class="srow"><span><i class="pi">${i}</i>${t}<small>${s}</small></span></div>`).join("")}
  <button class="paybtn" onclick="buyPremium()">${on?"Add 30 more days":"Get Premium"} — $${S.cfg.premium_usd||9.99}</button><p class="muted">30 days of Premium, one-time payment, no auto-renew. Secure checkout by Stripe.${S.cfg.stripe_test?" (Test mode — use card 4242 4242 4242 4242.)":""}</p></div></div>`)}
 async function buyPremium(){if(!S.cfg.payments)return toast("Payments not connected yet");try{location.href=(await api("/api/checkout/premium",{method:"POST"})).url}catch(e){toast(e.message)}}
 
 // ---------------- Gate (signup/login) ----------------
+function forgotPw(){const g=$("#gate");g.innerHTML=`<div class="gbox card"><img class="glogo" src="img/logo_header.png?v=2" alt="${APP_NAME}"><h2>Reset password</h2><p class="muted">Enter your email or username. We'll email you a reset link.</p>
+ <input id="fl" placeholder="Email or username"><button class="btn pri full big" id="fsb">Send reset link</button><a class="lnk" onclick="S.auth='login';gate()">Back to log in</a></div>`;
+ $("#fsb").onclick=async()=>{try{const r=await api("/api/password/forgot",{method:"POST",body:{login:$("#fl").value}});
+  g.querySelector(".gbox p").textContent=r.mail?"If that account has an email, a reset link is on its way. Check your inbox (and spam).":"Email reset isn't switched on yet. Please contact support from the Help page to reset your password.";}catch(e){toast(e.message)}}}
+function resetPw(token){$("#shell")?.remove();let g=$("#gate");if(!g){g=document.createElement("div");g.id="gate";document.body.append(g)}
+ g.innerHTML=`<div class="gbox card"><img class="glogo" src="img/logo_header.png?v=2" alt="${APP_NAME}"><h2>Choose a new password</h2><input id="np" type="password" placeholder="New password (8+ characters)"><button class="btn pri full big" id="nsb">Save password</button></div>`;
+ $("#nsb").onclick=async()=>{try{await api("/api/password/reset",{method:"POST",body:{token,password:$("#np").value}});toast("Password saved — please log in");setMe(null);sock?.disconnect();sock=null;S.auth="login";location.hash="";gate()}catch(e){toast(e.message)}}}
 function gate(){$("#shell")?.remove();const su=(S.auth||"signup")=="signup";document.body.classList.remove("immersive");
  let g=$("#gate");if(!g){g=document.createElement("div");g.id="gate";document.body.append(g)}
  g.innerHTML=`<div class="gbox card"><img class="glogo" src="img/logo_header.png?v=2" alt="${APP_NAME}"><h2>${su?"Create your account":"Welcome back"}</h2><p class="muted">Live streams, chat & dating.</p>
  ${su?`<input id="em" type="email" placeholder="Email"><input id="un" placeholder="Username"><input id="pw" type="password" placeholder="Password (8+ characters)"><label class="lb">Birthday<input id="dob" type="date"></label>
   <div class="seg" id="gsel">${[["m","Man"],["f","Woman"],["","Other"]].map(([v,t])=>`<b data-v="${v}" onclick="$$('#gsel b').forEach(x=>x.classList.remove('on'));this.classList.add('on')">${t}</b>`).join("")}</div>
   <label class="chk"><input type="checkbox" id="tos"> I'm 18+ and agree to the Terms & Privacy Policy</label>`:`<input id="lg" placeholder="Email or username"><input id="pw" type="password" placeholder="Password">`}
- <button class="btn pri full big" onclick="enter()">${su?"Create account":"Log in"}</button><a class="lnk" onclick="S.auth='${su?"login":"signup"}';gate()">${su?"Have an account? Log in":"New here? Create an account"}</a></div>`}
+ <button class="btn pri full big" onclick="enter()">${su?"Create account":"Log in"}</button>${su?"":`<a class="lnk" onclick="forgotPw()">Forgot password?</a>`}<a class="lnk" onclick="S.auth='${su?"login":"signup"}';gate()">${su?"Have an account? Log in":"New here? Create an account"}</a></div>`}
 async function enter(){const v=i=>$("#"+i)?.value||"";try{
  if((S.auth||"signup")=="signup"){if(!((Date.now()-new Date(v("dob")))/31557600000>=18))return toast("You must be 18+");if(!$("#tos").checked)return toast("Please confirm you're 18+");
-  setMe(await api("/api/signup",{method:"POST",body:{email:v("em"),username:v("un"),password:v("pw"),dob:v("dob"),gender:$("#gsel b.on")?.dataset.v||""}}))}
+  setMe(await api("/api/signup",{method:"POST",body:{email:v("em"),username:v("un"),password:v("pw"),dob:v("dob"),gender:$("#gsel b.on")?.dataset.v||"",tos:true}}))}
  else setMe(await api("/api/login",{method:"POST",body:{login:v("lg"),password:v("pw")}}));
  $("#gate")?.remove();connect();location.hash=location.hash||"#/live";render()}catch(e){toast(e.message)}}
 

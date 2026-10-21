@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS purchases(id INTEGER PRIMARY KEY,user_id INTEGER,stri
 CREATE TABLE IF NOT EXISTS payouts(id INTEGER PRIMARY KEY,user_id INTEGER,diamonds INTEGER,usd REAL,status TEXT DEFAULT 'pending',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
 // ---- Schema migrations (backup first when an existing DB is upgraded) ----
-const SCHEMA_VERSION=4;
+const SCHEMA_VERSION=5;
 {const cur=db.pragma('user_version',{simple:true});
  if(cur<SCHEMA_VERSION&&db.prepare('SELECT COUNT(*) n FROM users').get().n>0){
    db.pragma('wal_checkpoint(TRUNCATE)');const f=path.join(DATA_DIR,`backup-pre-migration-v${cur}-to-v${SCHEMA_VERSION}-${new Date().toISOString().replace(/[:.]/g,'-')}.db`);
@@ -67,8 +67,12 @@ CREATE TABLE IF NOT EXISTS blocks(blocker INTEGER REFERENCES users(id),blocked I
 CREATE TABLE IF NOT EXISTS bouncers(streamer INTEGER REFERENCES users(id),user_id INTEGER REFERENCES users(id),created_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(streamer,user_id));
 CREATE TABLE IF NOT EXISTS feedback(id INTEGER PRIMARY KEY,user_id INTEGER,text TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS luv(id INTEGER PRIMARY KEY,sender INTEGER REFERENCES users(id),receiver INTEGER REFERENCES users(id),created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY,reporter INTEGER REFERENCES users(id),target INTEGER REFERENCES users(id),stream_id INTEGER,reason TEXT,details TEXT,status TEXT DEFAULT 'open',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS photos(id INTEGER PRIMARY KEY,user_id INTEGER REFERENCES users(id),url TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS pw_resets(token_hash TEXT PRIMARY KEY,user_id INTEGER REFERENCES users(id),expires_at INTEGER,used INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS pet_log(id INTEGER PRIMARY KEY,pet INTEGER,buyer INTEGER,seller INTEGER,price INTEGER,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
+addCol('payouts','paypal',"TEXT DEFAULT ''");addCol('users','terms_at','TEXT');
 db.pragma(`user_version=${SCHEMA_VERSION}`);
 db.prepare("UPDATE streams SET ended_at=CURRENT_TIMESTAMP WHERE ended_at IS NULL").run(); // nothing is live after restart
 
@@ -128,7 +132,7 @@ app.post('/api/stripe/webhook',express.raw({type:'application/json'}),(req,res)=
   if(ev.type==='checkout.session.completed'&&ev.data.object.payment_status==='paid'){
     const s=ev.data.object;
     db.transaction(()=>{const p=db.prepare('SELECT * FROM purchases WHERE stripe_session=?').get(s.id);
-      if(!p||p.status==='paid')return;db.prepare("UPDATE purchases SET status='paid' WHERE id=?").run(p.id);
+      if(!p||p.status==='paid')return;if(String(p.user_id)!==String(s.client_reference_id)||(s.amount_total!=null&&s.amount_total!==Math.round(p.usd*100))){console.error('webhook mismatch for purchase',p.id);db.prepare("UPDATE purchases SET status='mismatch' WHERE id=?").run(p.id);return}db.prepare("UPDATE purchases SET status='paid' WHERE id=?").run(p.id);
       if(p.kind==='premium')db.prepare("UPDATE users SET premium_until=datetime(MAX(COALESCE(premium_until,'0'),datetime('now')),'+30 days') WHERE id=?").run(p.user_id);
       else db.prepare('UPDATE users SET coins=coins+? WHERE id=?').run(p.coins,p.user_id)})();
     {const pp=db.prepare('SELECT user_id,kind FROM purchases WHERE stripe_session=?').get(s.id);if(pp?.kind==='premium')io.to('u'+pp.user_id).emit('premium',me(getUser(pp.user_id)))}
@@ -155,14 +159,14 @@ async function dynamicIce(){ // Cloudflare Realtime TURN (CF_TURN_KEY_ID+CF_TURN
 app.get('/api/ice',async(req,res)=>{if(!req.session.uid)return res.status(401).json({error:'Please log in'});res.set('Cache-Control','no-store');
   const dyn=await dynamicIce();res.json({iceServers:dyn?[{urls:['stun:stun.l.google.com:19302']},...dyn]:ICE(),turn:!!(dyn||process.env.TURN_URL)})});
 app.post('/api/signup',authLimit,async(req,res)=>{
-  const{email,username,password,dob,display_name,gender}=req.body||{};if(gender!=null&&!['m','f',''].includes(gender))return res.status(400).json({error:'Invalid gender'});
+  const{email,username,password,dob,display_name,gender,tos}=req.body||{};if(tos!==true)return res.status(400).json({error:'Please confirm you are 18+ and agree to the Terms'});if(gender!=null&&!['m','f',''].includes(gender))return res.status(400).json({error:'Invalid gender'});
   if(!/^[a-z0-9_.]{3,24}$/i.test(username||''))return res.status(400).json({error:'Username: 3-24 letters, numbers, _ or .'});
   if(email&&!/^\S+@\S+\.\S+$/.test(email))return res.status(400).json({error:'Invalid email'});
   if(typeof password!=='string'||password.length<8||password.length>72)return res.status(400).json({error:'Password must be 8-72 characters'});
   if(email&&(typeof email!=='string'||email.length>254))return res.status(400).json({error:'Invalid email'});
   if(display_name!=null&&typeof display_name!=='string')return res.status(400).json({error:'Invalid name'});
-  const age=(Date.now()-new Date(dob))/31557600000;if(!(age>=18))return res.status(400).json({error:'You must be 18+'});
-  try{const r=db.prepare('INSERT INTO users(email,username,pass,display_name,dob,coins,gender) VALUES(?,?,?,?,?,?,?)')
+  const age=(Date.now()-new Date(dob))/31557600000;if(!(age>=18&&age<120))return res.status(400).json({error:'You must be 18+'});
+  try{const r=db.prepare('INSERT INTO users(email,username,pass,display_name,dob,coins,gender,terms_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)')
       .run(email||null,username,await bcrypt.hash(password,12),(display_name||username).trim().slice(0,40),dob,START_COINS,gender||'');
     req.session.regenerate(()=>{req.session.uid=r.lastInsertRowid;res.json(me(getUser(r.lastInsertRowid)))});
   }catch(e){res.status(409).json({error:'Email or username already taken'})}
@@ -171,7 +175,7 @@ app.post('/api/login',authLimit,async(req,res)=>{const{login,password}=req.body|
   const u=db.prepare('SELECT * FROM users WHERE email=? OR username=?').get(login||'',login||'');
   if(!u||!await bcrypt.compare(password||'',u.pass))return res.status(401).json({error:'Wrong login or password'});
   req.session.regenerate(()=>{req.session.uid=u.id;res.json(me(u))})});
-app.post('/api/logout',(req,res)=>req.session.destroy(()=>{res.clearCookie('connect.sid');res.json({ok:1})}));
+app.post('/api/logout',(req,res)=>req.session.destroy(()=>{res.clearCookie('tapin.sid');res.json({ok:1})}));
 app.get('/api/me',(req,res)=>{const u=req.session.uid&&getUser(req.session.uid);res.json(u?me(u):null)});
 app.put('/api/me',auth,(req,res)=>{const{display_name,bio,city,gender,dob}=req.body||{};if([display_name,bio,city,gender,dob].some(v=>v!=null&&typeof v!=='string'))return res.status(400).json({error:'Invalid input'});
   if(gender!=null&&['m','f',''].includes(gender))db.prepare('UPDATE users SET gender=? WHERE id=?').run(gender,req.user.id);
@@ -196,7 +200,7 @@ const imageRoute=(field,apply)=>(req,res)=>upload.single(field)(req,res,async er
 app.post('/api/me/avatar',uploadLimit,auth,imageRoute('avatar',(req,url)=>{
   const old=getUser(req.user.id).avatar;if(old)fs.rm(path.join(UPLOAD_DIR,path.basename(old)),()=>{});
   db.prepare('UPDATE users SET avatar=? WHERE id=?').run(url,req.user.id)}));
-app.get('/api/users/:name',(req,res)=>{const u=db.prepare('SELECT * FROM users WHERE username=?').get(req.params.name);if(!u)return res.status(404).json({error:'Not found'});
+app.get('/api/users/:name',(req,res)=>{const u=db.prepare('SELECT * FROM users WHERE username=?').get(req.params.name);if(!u||(req.session.uid&&db.prepare('SELECT 1 FROM blocks WHERE blocker=? AND blocked=?').get(u.id,req.session.uid)))return res.status(404).json({error:'Not found'});
   const p=pub(u);p.is_following=!!(req.session.uid&&db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(req.session.uid,u.id));
   const lr=[...rooms.values()].find(r=>r.uid===u.id);p.live=!!lr;p.stream_id=lr?.id||null;p.received=received(u.id);p.rank=rankOf(p.received).label;
   const viewer=req.session.uid;if(viewer&&viewer!==u.id){
@@ -204,7 +208,7 @@ app.get('/api/users/:name',(req,res)=>{const u=db.prepare('SELECT * FROM users W
     db.prepare('INSERT INTO profile_views(viewer,target) VALUES(?,?) ON CONFLICT(viewer,target) DO UPDATE SET created_at=CURRENT_TIMESTAMP').run(viewer,u.id);
     if(!prev)notify(u.id,'view',viewer,'viewed your profile','#/discover/views');
     p.friend=friendState(viewer,u.id);p.blocked=!!db.prepare('SELECT 1 FROM blocks WHERE blocker=? AND blocked=?').get(viewer,u.id);
-    p.match=isMatch(viewer,u.id);p.distance=distLabel(getUser(viewer),u);p.luv_today=!!db.prepare("SELECT 1 FROM luv WHERE sender=? AND receiver=? AND created_at>datetime('now','-1 day')").get(viewer,u.id)}
+    p.match=isMatch(viewer,u.id);p.photos=photosOf(u.id);p.distance=distLabel(getUser(viewer),u);p.luv_today=!!db.prepare("SELECT 1 FROM luv WHERE sender=? AND receiver=? AND created_at>datetime('now','-1 day')").get(viewer,u.id)}
   res.json(p)});
 app.post('/api/users/:name/follow',auth,(req,res)=>{const u=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
   if(!u||u.id===req.user.id)return res.status(400).json({error:"Can't follow"});if(db.prepare('INSERT OR IGNORE INTO follows(follower,followee) VALUES(?,?)').run(req.user.id,u.id).changes){
@@ -232,11 +236,11 @@ app.post('/api/me/location',limiter(30,60e3),auth,(req,res)=>{const lat=+req.bod
   if(!(Math.abs(lat)<=90&&Math.abs(lng)<=180))return res.status(400).json({error:'Invalid location'});
   db.prepare('UPDATE users SET lat=?,lng=? WHERE id=?').run(Math.round(lat*50)/50,Math.round(lng*50)/50,req.user.id);res.json(me(getUser(req.user.id)))});
 app.delete('/api/me/location',auth,(req,res)=>{db.prepare('UPDATE users SET lat=NULL,lng=NULL WHERE id=?').run(req.user.id);res.json(me(getUser(req.user.id)))});
-app.post('/api/payouts',moneyLimit,auth,(req,res)=>{try{const r=db.transaction(()=>{const u=getUser(req.user.id);if(u.diamonds<CASHOUT_MIN)throw new Error(`Minimum ${CASHOUT_MIN} diamonds`);
+app.post('/api/payouts',moneyLimit,auth,(req,res)=>{const paypal=String(req.body?.paypal||'').trim();if(!/^\S+@\S+\.\S+$/.test(paypal)||paypal.length>254)return res.status(400).json({error:'Enter the PayPal email to pay you at'});try{const r=db.transaction(()=>{const u=getUser(req.user.id);if(u.diamonds<CASHOUT_MIN)throw new Error(`Minimum ${CASHOUT_MIN} diamonds`);
     db.prepare('UPDATE users SET diamonds=0 WHERE id=?').run(u.id);
-    return db.prepare('INSERT INTO payouts(user_id,diamonds,usd) VALUES(?,?,?)').run(u.id,u.diamonds,u.diamonds/DIAMONDS_PER_USD)})();
+    return db.prepare('INSERT INTO payouts(user_id,diamonds,usd,paypal) VALUES(?,?,?,?)').run(u.id,u.diamonds,Math.floor(u.diamonds/DIAMONDS_PER_USD*100)/100,paypal)})();
   res.json({payout:db.prepare('SELECT * FROM payouts WHERE id=?').get(r.lastInsertRowid),me:me(getUser(req.user.id))})}catch(e){res.status(400).json({error:e.message})}});
-app.get('/api/payouts',auth,(req,res)=>res.json(db.prepare('SELECT * FROM payouts WHERE user_id=? ORDER BY id DESC').all(req.user.id)));
+app.get('/api/payouts',auth,(req,res)=>res.json(db.prepare('SELECT id,diamonds,usd,status,paypal,created_at FROM payouts WHERE user_id=? ORDER BY id DESC').all(req.user.id)));
 
 // ---- Near you / Meet Me / Chats ----
 const pair=(x,y)=>x<y?[x,y]:[y,x];
@@ -284,6 +288,61 @@ app.get('/api/chats/:name',auth,(req,res)=>{const o=db.prepare('SELECT * FROM us
   res.json({user:pub(o),match:isMatch(req.user.id,o.id),messages:msgs.map(m=>({id:m.id,mine:m.sender===req.user.id,text:m.text,at:m.created_at,read:!!m.read_at}))})});
 app.post('/api/chats/:name/read',auth,(req,res)=>{const o=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
   if(o)db.prepare('UPDATE dms SET read_at=CURRENT_TIMESTAMP WHERE sender=? AND receiver=? AND read_at IS NULL').run(o.id,req.user.id);res.json({unread:unreadTotal(req.user.id)})});
+// ---- Password: change (logged in) and reset by emailed link ----
+const killSessions=uid=>{try{db.prepare("DELETE FROM sessions WHERE json_extract(sess,'$.uid')=?").run(uid)}catch(e){}};
+app.post('/api/me/password',authLimit,auth,async(req,res)=>{const{current,next}=req.body||{};if(typeof current!=='string'||typeof next!=='string')return res.status(400).json({error:'Invalid input'});
+  if(next.length<8||next.length>72)return res.status(400).json({error:'Password must be 8-72 characters'});
+  if(!await bcrypt.compare(current,req.user.pass))return res.status(403).json({error:'Current password is wrong'});
+  db.prepare('UPDATE users SET pass=? WHERE id=?').run(await bcrypt.hash(next,12),req.user.id);killSessions(req.user.id);
+  req.session.regenerate(()=>{req.session.uid=req.user.id;res.json({ok:1})})});
+async function sendMail(to,subject,text){ // Resend (RESEND_API_KEY + MAIL_FROM). Without it, nothing is sent.
+  if(!process.env.RESEND_API_KEY)return false;
+  try{const r=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+process.env.RESEND_API_KEY,'Content-Type':'application/json'},
+    body:JSON.stringify({from:process.env.MAIL_FROM||'Tap.in <onboarding@resend.dev>',to:[to],subject,text}),signal:AbortSignal.timeout(8000)});return r.ok}catch(e){console.error('mail failed:',e.message);return false}}
+const sha=t=>crypto.createHash('sha256').update(t).digest('hex');
+app.post('/api/password/forgot',authLimit,async(req,res)=>{const login=req.body?.login;if(typeof login!=='string'||!login.trim()||login.length>254)return res.status(400).json({error:'Enter your email or username'});
+  const u=db.prepare('SELECT * FROM users WHERE email=? OR username=?').get(login.trim(),login.trim());
+  if(u&&u.email){const t=crypto.randomBytes(32).toString('hex');db.prepare('DELETE FROM pw_resets WHERE user_id=?').run(u.id);
+    db.prepare('INSERT INTO pw_resets(token_hash,user_id,expires_at) VALUES(?,?,?)').run(sha(t),u.id,Date.now()+36e5);
+    await sendMail(u.email,'Reset your Tap.in password',`Hi ${u.display_name||u.username},\n\nTap this link to choose a new password (valid for 1 hour):\n${BASE_URL}/#/reset/${t}\n\nIf you didn't ask for this, ignore this email.`)}
+  res.json({ok:1,mail:!!process.env.RESEND_API_KEY})}); // same answer whether or not the account exists
+app.post('/api/password/reset',authLimit,async(req,res)=>{const{token,password}=req.body||{};if(typeof token!=='string'||typeof password!=='string')return res.status(400).json({error:'Invalid link'});
+  if(password.length<8||password.length>72)return res.status(400).json({error:'Password must be 8-72 characters'});
+  const r=db.prepare('SELECT * FROM pw_resets WHERE token_hash=?').get(sha(token));if(!r||r.used||r.expires_at<Date.now())return res.status(400).json({error:'This reset link is invalid or expired. Ask for a new one.'});
+  const h=await bcrypt.hash(password,12);db.transaction(()=>{db.prepare('UPDATE pw_resets SET used=1 WHERE token_hash=?').run(r.token_hash);db.prepare('UPDATE users SET pass=? WHERE id=?').run(h,r.user_id)})();
+  killSessions(r.user_id);res.json({ok:1})});
+// ---- Reports (stored for review; reporter also auto-blocks if asked) ----
+const REASONS=['nudity','harassment','underage','spam','scam','violence','hate','other'];
+app.post('/api/report',limiter(10,60e3),auth,(req,res)=>{const{username,stream_id,reason,details,block}=req.body||{};if(!REASONS.includes(reason))return res.status(400).json({error:'Pick a reason'});
+  const t=typeof username==='string'?db.prepare('SELECT id FROM users WHERE username=?').get(username):null;const sid=Number.isInteger(stream_id)?stream_id:null;
+  const tid=t?.id??(sid?rooms.get(sid)?.uid??db.prepare('SELECT user_id FROM streams WHERE id=?').get(sid)?.user_id:null);
+  if(!tid||tid===req.user.id)return res.status(400).json({error:'Nothing to report'});
+  db.prepare('INSERT INTO reports(reporter,target,stream_id,reason,details) VALUES(?,?,?,?,?)').run(req.user.id,tid,sid,reason,String(details||'').slice(0,1000));
+  if(block===true){db.prepare('INSERT OR IGNORE INTO blocks(blocker,blocked) VALUES(?,?)').run(req.user.id,tid);db.prepare('DELETE FROM follows WHERE (follower=? AND followee=?) OR (follower=? AND followee=?)').run(req.user.id,tid,tid,req.user.id)}
+  console.log(`REPORT ${reason} by #${req.user.id} against #${tid}${sid?' stream '+sid:''}`);res.json({ok:1})});
+// ---- Profile photos (up to 9) ----
+const MAX_PHOTOS=9;const photosOf=uid=>db.prepare('SELECT id,url FROM photos WHERE user_id=? ORDER BY id').all(uid);
+app.get('/api/photos/:name',auth,(req,res)=>{const u=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);if(!u||isBlocked(req.user.id,u.id))return res.status(404).json({error:'Not found'});res.json(photosOf(u.id))});
+app.post('/api/me/photos',uploadLimit,auth,(req,res,next)=>{if(photosOf(req.user.id).length>=MAX_PHOTOS)return res.status(400).json({error:`You can have up to ${MAX_PHOTOS} photos`});next()},
+  imageRoute('photo',(req,url)=>db.prepare('INSERT INTO photos(user_id,url) VALUES(?,?)').run(req.user.id,url)));
+app.delete('/api/me/photos/:id',auth,(req,res)=>{const p=db.prepare('SELECT * FROM photos WHERE id=? AND user_id=?').get(+req.params.id,req.user.id);if(!p)return res.status(404).json({error:'Not found'});
+  db.prepare('DELETE FROM photos WHERE id=?').run(p.id);fs.rm(path.join(UPLOAD_DIR,path.basename(p.url)),()=>{});res.json(photosOf(req.user.id))});
+// ---- Delete account (self-service, needs password). Also used by the temporary admin purge. ----
+function deleteUser(id){const u=getUser(id);if(!u)return 0;const q=(sql,...a)=>db.prepare(sql).run(...a);
+  db.transaction(()=>{q('DELETE FROM follows WHERE follower=? OR followee=?',id,id);q('DELETE FROM gifts_sent WHERE sender=? OR receiver=?',id,id);
+    q('DELETE FROM chat WHERE user_id=? OR stream_id IN(SELECT id FROM streams WHERE user_id=?)',id,id);q('DELETE FROM gifts_sent WHERE stream_id IN(SELECT id FROM streams WHERE user_id=?)',id);q('DELETE FROM streams WHERE user_id=?',id);
+    q('DELETE FROM purchases WHERE user_id=?',id);q('DELETE FROM payouts WHERE user_id=?',id);q('DELETE FROM meets WHERE voter=? OR target=?',id,id);q('DELETE FROM matches WHERE a=? OR b=?',id,id);
+    q('DELETE FROM dms WHERE sender=? OR receiver=?',id,id);q('DELETE FROM profile_views WHERE viewer=? OR target=?',id,id);q('DELETE FROM friends WHERE requester=? OR addressee=?',id,id);
+    q('DELETE FROM notifications WHERE user_id=? OR actor=?',id,id);q('DELETE FROM blocks WHERE blocker=? OR blocked=?',id,id);q('DELETE FROM bouncers WHERE streamer=? OR user_id=?',id,id);
+    q('DELETE FROM feedback WHERE user_id=?',id);q('DELETE FROM luv WHERE sender=? OR receiver=?',id,id);q('DELETE FROM pet_log WHERE pet=? OR buyer=? OR seller=?',id,id,id);
+    q('DELETE FROM reports WHERE reporter=? OR target=?',id,id);q('DELETE FROM pw_resets WHERE user_id=?',id);
+    const ph=db.prepare('SELECT url FROM photos WHERE user_id=?').all(id);q('DELETE FROM photos WHERE user_id=?',id);
+    q('UPDATE users SET pet_owner=NULL WHERE pet_owner=?',id);try{q("DELETE FROM sessions WHERE json_extract(sess,'$.uid')=?",id)}catch(e){}q('DELETE FROM users WHERE id=?',id);
+    for(const f of[u.avatar,...ph.map(p=>p.url)])if(f&&/^\/uploads\/[\w.-]+$/.test(f))fs.rm(path.join(UPLOAD_DIR,path.basename(f)),()=>{})})();
+  for(const r of rooms.values())if(r.uid===id)endRoom(r);return 1}
+app.delete('/api/me',authLimit,auth,async(req,res)=>{const pw=req.body?.password;if(typeof pw!=='string'||!await bcrypt.compare(pw,req.user.pass))return res.status(403).json({error:'Password is wrong'});
+  deleteUser(req.user.id);req.session.destroy(()=>{res.clearCookie('tapin.sid');res.json({ok:1})})});
+if(process.env.ADMIN_TOKEN&&fs.existsSync(path.join(__dirname,'admin_tmp.js')))require('./admin_tmp.js')({app,db,DATA_DIR,deleteUser});
 require('./tagged_api.js')({app,db,auth,pub,me,getUser,limiter,ageOf,levelOf,rankOf,settingsOf,received,isMatch,pair,get rooms(){return rooms},get io(){return io},notify:(...a)=>notify(...a),friendState:(...a)=>friendState(...a),isBlocked:(...a)=>isBlocked(...a),gq,ageOk,distOk,distLabel});
 app.use('/uploads',express.static(UPLOAD_DIR,{maxAge:'7d',setHeaders:r=>r.set('X-Content-Type-Options','nosniff')}));
 app.use('/vendor/leaflet',express.static(path.join(__dirname,'node_modules/leaflet/dist'),{maxAge:'30d'}));
@@ -339,13 +398,15 @@ io.on('connection',sock=>{
     r.guest={sid,uid:gu};io.to(sid).emit('guest-ok',{peers:[r.host,...[...r.viewers].filter(v=>v!==sid)]});io.to('s'+r.id).emit('guest',{sid,user:pub(getUser(gu))});io.emit('streams')});
   sock.on('guest-end',()=>{const r=hosting||watching;if(r&&(hosting||r.guest?.sid===sock.id))endGuest(r)});
   sock.on('chat',({text}={})=>{if(!chatOk())return sock.emit('err','Slow down');const r=watching||hosting;text=String(text||'').trim().slice(0,300);if(!r||!text)return;
-    db.prepare('INSERT INTO chat(stream_id,user_id,text) VALUES(?,?,?)').run(r.id,uid,text);io.to('s'+r.id).emit('chat',{from:name(),text})});
+    db.prepare('INSERT INTO chat(stream_id,user_id,text) VALUES(?,?,?)').run(r.id,uid,text);const msg={from:name(),user:user.username,text};
+    for(const sid of [r.host,...r.viewers]){const s2=io.sockets.sockets.get(sid);const ru=s2?.request.session?.uid;if(s2&&!(ru&&ru!==uid&&isBlocked(ru,uid)))s2.emit('chat',msg)}});
   sock.on('gift',({k}={},cb)=>{if(typeof cb!=='function')cb=()=>{};if(!giftOk())return cb({error:'Slow down'});if(!Number.isInteger(k))return cb({error:'Bad gift'});const r=watching;const g=GIFTS[k];if(!r)return cb?.({error:'Not watching'});
     const lvl=levelOf(getUser(uid).xp||0).n;if(!g||!(g[2]>0)||(g[5]!=null&&!(typeof g[5]==='number'&&lvl>=g[5])&&!(g[5]==='VIP'&&isPremium(getUser(uid)))))return cb?.({error:'Gift locked'});if(r.uid===uid)return cb?.({error:"Can't gift yourself"});
     const c=g[2],d=giftDiamonds(c);
-    try{sendGift(uid,r.uid,c,d)}catch(e){return cb?.({error:e.message==='NOCOINS'?'NOCOINS':'Gift failed',coins:getUser(uid).coins})}
-    db.prepare('INSERT INTO gifts_sent(stream_id,sender,receiver,gift_key,coins,diamonds) VALUES(?,?,?,?,?,?)').run(r.id,uid,r.uid,g[0],c,d);
-    db.prepare('UPDATE users SET xp=xp+? WHERE id=?').run(c,uid);db.prepare('UPDATE streams SET diamonds=diamonds+? WHERE id=?').run(d,r.id);
+    try{db.transaction(()=>{sendGift(uid,r.uid,c,d);
+      db.prepare('INSERT INTO gifts_sent(stream_id,sender,receiver,gift_key,coins,diamonds) VALUES(?,?,?,?,?,?)').run(r.id,uid,r.uid,g[0],c,d);
+      db.prepare('UPDATE users SET xp=xp+? WHERE id=?').run(c,uid);db.prepare('UPDATE streams SET diamonds=diamonds+? WHERE id=?').run(d,r.id)})()}
+    catch(e){return cb?.({error:e.message==='NOCOINS'?'NOCOINS':'Gift failed',coins:getUser(uid).coins})}
     io.to('s'+r.id).emit('gift',{k,from:name(),coins:c,diamonds:d,to:getUser(r.uid).display_name,total:getUser(r.uid).diamonds});
     pushBalance(uid);pushBalance(r.uid);io.to('s'+r.id).emit('top',topGifters(r.id,r.uid));io.to('s'+r.id).emit('stats',roomStats(r));cb?.({ok:1,xp:levelOf(getUser(uid).xp)})});
   sock.on('heart',()=>{const r=watching||hosting;if(!r||!heartOk())return;r.hearts=(r.hearts||0)+1;db.prepare('UPDATE streams SET hearts=? WHERE id=?').run(r.hearts,r.id);io.to('s'+r.id).emit('heart',{n:r.hearts,from:name()})});

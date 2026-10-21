@@ -12,7 +12,8 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "playwright": "1.59"
+    "playwright": "1.59",
+    "socket.io-client": "^4.8.4"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

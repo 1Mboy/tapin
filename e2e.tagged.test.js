@@ -10,7 +10,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  const shot=async(p,name)=>{await p.waitForTimeout(500);await p.screenshot({path:`${OUT}/${String(++n).padStart(2,'0')}_${name}.png`})};
  const signup=async(p,u,g)=>{await p.goto(URL);await p.waitForSelector('#un');await p.fill('#em',u+'@example.com');await p.fill('#un',u);await p.fill('#pw','secret123!');await p.fill('#dob','1992-05-05');await p.keyboard.press('Escape');await p.click('h2');
   await p.click(`#gsel b[data-v="${g}"]`);await p.check('#tos');await p.click('button:has-text("Create account")');await p.waitForSelector('#shell')};
- const ua='ann_'+T,ub='ben_'+T;
+ const ua='tmp_e2e_ann'+T.slice(-6),ub='tmp_e2e_ben'+T.slice(-6);
  await A.goto(URL);await A.waitForSelector('#un');await shot(A,'signup');await A.click('text=Have an account? Log in');await shot(A,'login');
  await signup(A,ua,'f');await signup(B,ub,'m');log('signed up',ua,ub);
  const city='Austin';
