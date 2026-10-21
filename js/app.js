@@ -35,7 +35,7 @@ const lvlBadge=n=>`<i class="lvb2">${n}</i>`;
 const ICON={pets:"🐾",luv:"💙",chats:"💬",discover:"📍",match:"🃏",live:"▶",friends:"👥",more:"☰",bell:"🔔",gold:"🪙"};
 const NAV=[["pets","Pets","#/pets"],["luv","Luv","#/luv"],["chats","Chats","#/chats"],["discover","Discover","#/discover/near"],["match","Match","#/match"],["live","Live","#/live"],["friends","Friends","#/friends"],["more","More",null]];
 const TABS=[["live","Live","#/live"],["discover","Discover","#/discover/near"],["match","Match","#/match"],["chats","Chats","#/chats"],["friends","Friends","#/friends"]];
-const TITLES={live:"Live",discover:"Discover",match:"Match",chats:"Chats",friends:"Friends",pets:"Pets",luv:"Luv",profile:"Profile",u:"Profile",gold:"Coins",diamonds:"Diamond Rewards",premium:"Premium",golive:"Go Live"};
+const TITLES={live:"Live",discover:"Discover",match:"Match",chats:"Chats",friends:"Friends",pets:"Pets",luv:"Luv",profile:"Profile",u:"Profile",gold:"Coins",diamonds:"Diamond Rewards",premium:"Premium",admin:"Admin",golive:"Go Live"};
 
 // ---------------- shell ----------------
 function shell(){if($("#shell"))return;
@@ -63,7 +63,7 @@ function popAt(ev,html,cls=""){closePops();const d=document.createElement("div")
 function sheet(html,cls=""){closePops();const b=document.createElement("div");b.className="sheet-bg";b.innerHTML=`<div class="sheet ${cls}">${html}</div>`;b.onclick=e=>{if(e.target==b)b.remove()};document.body.append(b);return b.firstChild}
 function morePop(ev){ev.stopPropagation();popAt(ev,`<div class="pm">
  ${isPhone()?`<a href="#/pets">🐾 Pets</a><a href="#/luv">💙 Luv</a><a href="#/profile">👤 Profile</a><a href="#/gold">🪙 Buy Coins</a><a href="#/diamonds">💎 Diamond Rewards</a><a href="#/premium">🚀 Premium</a><hr>`:""}
- <a onclick="info('support')">Support</a><a onclick="info('health')">Consumer Health Data Privacy Policy</a><a onclick="info('dns')">Do Not Sell or Share My Personal Information</a>
+ ${S.me?.admin?'<a href="#/admin">🛠 Admin</a>':""}<a onclick="info('support')">Support</a><a onclick="info('health')">Consumer Health Data Privacy Policy</a><a onclick="info('dns')">Do Not Sell or Share My Personal Information</a>
  <a onclick="info('privacy')">Privacy Policy</a><a onclick="info('legal')">Legal Notice</a><small>© ${APP_NAME} 2026. All rights reserved.</small></div>`)}
 const INFO={support:["Support","Need help? Email support@tap.in or use Send Feedback in Live → Streamer tools. We reply within 48 hours."],health:["Consumer Health Data Privacy Policy",`${APP_NAME} does not collect consumer health data.`],
  dns:["Do Not Sell or Share My Personal Information",`${APP_NAME} does not sell or share your personal information for advertising. There are no ads on ${APP_NAME}.`],
@@ -153,7 +153,7 @@ async function render(){const rt=location.hash.match(/^#\/reset\/([a-f0-9]{64})$
  try{if(r=="live"){if(b=="view")return await viewer(+c);if(b=="search")return search();if(b=="map")return mapView("live");if(b=="tools")return await tools(c||"gifters");return liveFeed()}
   if(r=="golive")return golive();if(r=="discover")return b=="map"?await mapView("discover"):await discover(b||"near");if(r=="match")return await match();if(r=="chats")return chats(b);
   if(r=="profile")return await profile();if(r=="u")return await userProfile(b);if(r=="friends")return await friends(b||"requests");if(r=="pets")return await pets();if(r=="luv")return await luv();
-  if(r=="gold")return gold();if(r=="diamonds")return await diamonds();if(r=="premium")return premium();return liveFeed()}catch(e){console.error(e);toast(e.message);if(e.message=="Please log in"){setMe(null);return gate()}
+  if(r=="admin")return await admin();if(r=="gold")return gold();if(r=="diamonds")return await diamonds();if(r=="premium")return premium();return liveFeed()}catch(e){console.error(e);toast(e.message);if(e.message=="Please log in"){setMe(null);return gate()}
   V(`<div class="empty"><div class="ei">⚠️</div><b>Something went wrong</b><p class="muted">${esc(e.message||"Please check your connection.")}</p><button class="btn pri" onclick="render()">Try again</button></div>`)}}
 addEventListener("hashchange",render);
 
@@ -474,6 +474,21 @@ async function luv(){setNav("luv","Luv");const l=await api("/api/luv");
  <h4 class="pad">LUV FROM</h4>${l.from.length?plist(l.from,u=>`<i class="cnt">💙 ${u.n}</i>`):'<p class="muted pad">No Luv yet. Send some — people often send it back!</p>'}
  <h4 class="pad">SEND LUV (once per person per day)</h4><div class="dgrid">${l.suggest.map(u=>`<div class="ptile">${cover(u)}<span class="pg"><b>${ageCity(u)}</b><button class="btn sm pri" onclick="luvSend('${esc(u.username)}').then(luv)">💙 Send Luv</button></span></div>`).join("")}</div></div>`)}
 
+// ---------------- Admin: credit coins (server allows user #13 only) ----------------
+const ADM_PACKS=[100,550,1200,2500,6500,14000];
+async function admin(){setNav("admin","Admin");if(!S.me?.admin){V('<div class="empty"><div class="ei">🔒</div><b>Admins only</b></div>');return}
+ const gs=await api("/api/admin/grants");const u=S.adm;
+ V(`<div class="card adm pad"><h2>🛠 Credit coins</h2>
+ <form class="admf" onsubmit="event.preventDefault();admFind(this.q.value)"><input name="q" placeholder="Username" value="${esc(u?.username||"")}" autocapitalize="off" autocomplete="off"><button class="btn pri">Search</button></form>
+ ${u?`<div class="admu"><b>@${esc(u.username)}</b> <small>#${u.id} · ${esc(u.display_name)}</small><div class="bal">🪙 <b>${fmt(u.coins)}</b> coins now</div></div>
+ <div class="admp">${ADM_PACKS.map(c=>`<button class="pill gold" onclick="admGrant(${c})">+${fmt(c)}</button>`).join("")}</div>
+ <div class="admf"><input id="admAmt" type="number" min="1" max="100000" step="1" placeholder="Custom amount"><button class="btn" onclick="admGrant(+$('#admAmt').value)">Add</button></div>
+ <input id="admNote" maxlength="200" placeholder="Note (optional), e.g. Cash App $9.99" style="width:100%">`:'<p class="muted">Search a username to credit coins.</p>'}
+ <h4>LAST 50 GRANTS</h4>${gs.length?gs.map(g=>`<div class="srow"><span>🪙 +${fmt(g.amount)} → @${esc(g.username)}<small>${esc(g.created_at)} UTC · by @${esc(g.admin||"?")}${g.note?" · "+esc(g.note):""}</small></span></div>`).join(""):'<p class="muted">No grants yet.</p>'}</div>`)}
+async function admFind(q){try{S.adm=await api("/api/admin/user?username="+encodeURIComponent(q.trim()));admin()}catch(e){toast(e.message)}}
+async function admGrant(n){const u=S.adm;if(!u)return;if(!Number.isInteger(n)||n<1||n>100000)return toast("Amount must be 1 to 100,000");const note=($("#admNote")?.value||"").trim();
+ if(!confirm(`Add ${fmt(n)} coins to @${u.username}?${note?"\nNote: "+note:""}`))return;
+ try{const r=await api("/api/admin/grant",{method:"POST",body:{username:u.username,amount:n,note,confirm:true}});S.adm=r.user;toast(`Added ${fmt(n)} coins to @${u.username}`);admin()}catch(e){toast(e.message)}}
 // ---------------- Gold store / Diamonds / Premium ----------------
 const BONUS=[null,"+10%","+20%","+25%","+30%","+40%"];
 function gold(){setNav("gold","Coins");S.pack=S.pack??2;V(`<div class="card store"><div class="sth"><h2>Refill Coins</h2><span class="bal">🪙 <b data-coins>${fmt(S.coins)}</b></span></div>
