@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS luv(id INTEGER PRIMARY KEY,sender INTEGER REFERENCES 
 CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY,reporter INTEGER REFERENCES users(id),target INTEGER REFERENCES users(id),stream_id INTEGER,reason TEXT,details TEXT,status TEXT DEFAULT 'open',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS photos(id INTEGER PRIMARY KEY,user_id INTEGER REFERENCES users(id),url TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS pw_resets(token_hash TEXT PRIMARY KEY,user_id INTEGER REFERENCES users(id),expires_at INTEGER,used INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS coin_grants(id INTEGER PRIMARY KEY,admin_id INTEGER NOT NULL,user_id INTEGER NOT NULL,username TEXT NOT NULL,amount INTEGER NOT NULL,note TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS pet_log(id INTEGER PRIMARY KEY,pet INTEGER,buyer INTEGER,seller INTEGER,price INTEGER,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
 addCol('payouts','paypal',"TEXT DEFAULT ''");addCol('users','terms_at','TEXT');
@@ -84,12 +85,13 @@ const rankOf=tot=>{let i=0;while(i<RANKS.length-1&&tot>=RANKS[i+1][1])i++;const 
   const tlo=lo+t*step;return{name:RANKS[i][0],tier:['I','II','III','IV','V'][t],label:`${RANKS[i][0]} ${['I','II','III','IV','V'][t]}`,total:tot,pct:Math.round((tot-tlo)/step*100)}};
 const settingsOf=u=>{let s={};try{s=JSON.parse(u.settings||'{}')}catch(e){}return{dating_mode:true,hide_in_match:false,contact:'all',email_newsletter:true,email_pets:true,email_luv:true,email_friends:true,language:'English',units:'mi',...s}};
 const received=uid=>db.prepare('SELECT COALESCE(SUM(diamonds),0) n FROM gifts_sent WHERE receiver=?').get(uid).n;
+const ADMIN_ID=13; // Michael (Moneymike). Admin is checked on the server only by this id.
 const pub=u=>u&&({id:u.id,username:u.username,display_name:u.display_name||u.username,bio:u.bio||'',avatar:u.avatar,city:u.city||'',online:online.has(u.id),
  gender:u.gender||'',age:ageOf(u.dob),level:levelOf(u.xp||0).n,premium:isPremium(u),
  followers:db.prepare('SELECT COUNT(*) n FROM follows WHERE followee=?').get(u.id).n,
  following:db.prepare('SELECT COUNT(*) n FROM follows WHERE follower=?').get(u.id).n});
 const me=u=>u&&({...pub(u),email:u.email,coins:u.coins,diamonds:u.diamonds,xp:levelOf(u.xp||0),settings:settingsOf(u),dob:u.dob,pet_cash:u.pet_cash,
- received:received(u.id),rank:rankOf(received(u.id)),created_at:u.created_at,premium_until:isPremium(u)?u.premium_until:null,has_location:u.lat!=null});
+ received:received(u.id),rank:rankOf(received(u.id)),created_at:u.created_at,premium_until:isPremium(u)?u.premium_until:null,has_location:u.lat!=null,...(u.id===ADMIN_ID?{admin:true}:{})});
 // ---- Distance (coarse location, ~11 km grid) ----
 const KM_PER_MI=1.609344;
 const kmBetween=(a,b)=>{if(a?.lat==null||b?.lat==null)return null;const r=Math.PI/180,dLa=(b.lat-a.lat)*r,dLo=(b.lng-a.lng)*r;
@@ -322,6 +324,23 @@ app.post('/api/password/reset',authLimit,async(req,res)=>{const{token,password}=
   const r=db.prepare('SELECT * FROM pw_resets WHERE token_hash=?').get(sha(token));if(!r||r.used||r.expires_at<Date.now())return res.status(400).json({error:'This reset link is invalid or expired. Ask for a new one.'});
   const h=await bcrypt.hash(password,12);db.transaction(()=>{db.prepare('UPDATE pw_resets SET used=1 WHERE token_hash=?').run(r.token_hash);db.prepare('UPDATE users SET pass=? WHERE id=?').run(h,r.user_id)})();
   killSessions(r.user_id);res.json({ok:1})});
+// ---- Admin: manual coin credits (user #13 only) ----
+const GRANT_MAX=100000;
+const adminOnly=(req,res,next)=>auth(req,res,()=>req.user.id===ADMIN_ID?next():res.status(403).json({error:'Admins only'}));
+const grantView=u=>({id:u.id,username:u.username,display_name:u.display_name||u.username,coins:u.coins});
+app.get('/api/admin/user',limiter(60,60e3),adminOnly,(req,res)=>{const n=String(req.query.username||'').trim().replace(/^@/,'');
+  const u=n&&db.prepare('SELECT * FROM users WHERE username=?').get(n);if(!u)return res.status(404).json({error:'No user with that username'});res.json(grantView(u))});
+app.get('/api/admin/grants',adminOnly,(req,res)=>res.json(db.prepare('SELECT g.id,g.user_id,g.username,g.amount,g.note,g.created_at,a.username admin FROM coin_grants g LEFT JOIN users a ON a.id=g.admin_id ORDER BY g.id DESC LIMIT 50').all()));
+app.post('/api/admin/grant',limiter(30,60e3),adminOnly,(req,res)=>{const{username,amount,note,confirm}=req.body||{};
+  if(confirm!==true)return res.status(400).json({error:'Please confirm the grant'});
+  if(!Number.isInteger(amount)||amount<1||amount>GRANT_MAX)return res.status(400).json({error:`Amount must be a whole number from 1 to ${GRANT_MAX.toLocaleString()}`});
+  if(note!=null&&(typeof note!=='string'||note.length>200))return res.status(400).json({error:'Note is too long (200 max)'});
+  const u=typeof username==='string'&&db.prepare('SELECT id,username FROM users WHERE username=?').get(username.trim());if(!u)return res.status(404).json({error:'No user with that username'});
+  const r=db.transaction(()=>{const c=db.prepare('UPDATE users SET coins=coins+? WHERE id=?').run(amount,u.id);if(c.changes!==1)throw new Error('User not found');
+    const g=db.prepare('INSERT INTO coin_grants(admin_id,user_id,username,amount,note) VALUES(?,?,?,?,?)').run(req.user.id,u.id,u.username,amount,(note||'').trim()||null);
+    return {grant_id:Number(g.lastInsertRowid),user:grantView(getUser(u.id))}})();
+  console.log(`COIN GRANT #${r.grant_id}: ${amount} to #${u.id} by #${req.user.id}`);pushBalance(u.id);res.json(r)});
+app.get('/admin',(req,res)=>res.redirect('/#/admin'));
 // ---- Reports (stored for review; reporter also auto-blocks if asked) ----
 const REASONS=['nudity','harassment','underage','spam','scam','violence','hate','other'];
 app.post('/api/report',limiter(10,60e3),auth,(req,res)=>{const{username,stream_id,reason,details,block}=req.body||{};if(!REASONS.includes(reason))return res.status(400).json({error:'Pick a reason'});
