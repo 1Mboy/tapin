@@ -16,6 +16,8 @@ const DATA_DIR=process.env.DATA_DIR||path.join(__dirname,'data');
 const UPLOAD_DIR=path.join(DATA_DIR,'uploads');fs.mkdirSync(UPLOAD_DIR,{recursive:true});
 const STRIPE_KEY=process.env.STRIPE_SECRET_KEY,STRIPE_WH=process.env.STRIPE_WEBHOOK_SECRET;
 const stripe=STRIPE_KEY&&STRIPE_WH?require('stripe')(STRIPE_KEY):null;
+const STRIPE_LIVE=/^(1|true|yes)$/i.test(process.env.STRIPE_LIVE||''); // false: Stripe buttons hidden and Stripe checkout refused
+const paypal=require('./paypal');
 const BASE_URL=ORIGINS[0]||process.env.PUBLIC_URL||`http://${HOST}:${PORT}`;
 
 // --- Pricing constants are read from the front end so they can never drift ---
@@ -114,10 +116,11 @@ function notify(uid,type,actor,text,link){if(!uid||uid===actor)return;db.prepare
 
 // --- App ---
 const app=express();if(PROD||process.env.TRUST_PROXY)app.set('trust proxy',1);app.disable('x-powered-by');
+const PP_SRC=['https://www.paypal.com','https://*.paypal.com','https://*.paypalobjects.com','https://*.venmo.com'];
 app.use(helmet({contentSecurityPolicy:{useDefaults:true,directives:{
-  'script-src':["'self'","'unsafe-inline'"],'script-src-attr':["'unsafe-inline'"],'style-src':["'self'","'unsafe-inline'"],
-  'img-src':["'self'",'data:','blob:','https://tile.openstreetmap.org'],'media-src':["'self'",'blob:','mediastream:'],'connect-src':["'self'",'ws:','wss:'],
-  'form-action':["'self'",'https://checkout.stripe.com'],'upgrade-insecure-requests':null}},crossOriginEmbedderPolicy:false}));
+  'script-src':["'self'","'unsafe-inline'",...PP_SRC],'frame-src':["'self'",...PP_SRC],'script-src-attr':["'unsafe-inline'"],'style-src':["'self'","'unsafe-inline'"],
+  'img-src':["'self'",'data:','blob:','https://tile.openstreetmap.org',...PP_SRC],'media-src':["'self'",'blob:','mediastream:'],'connect-src':["'self'",'ws:','wss:',...PP_SRC],
+  'form-action':["'self'",'https://checkout.stripe.com'],'upgrade-insecure-requests':null}},crossOriginEmbedderPolicy:false,crossOriginOpenerPolicy:{policy:'same-origin-allow-popups'}}));
 const originOk=o=>!o||!ORIGINS.length&&!PROD||ORIGINS.includes(o)||(!PROD&&/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(o));
 app.use(cors({origin:(o,cb)=>cb(null,originOk(o)),credentials:true}));
 const limiter=(max,ms)=>rateLimit({windowMs:ms,limit:max,standardHeaders:'draft-7',legacyHeaders:false,message:{error:'Too many requests, slow down'}});
@@ -142,13 +145,14 @@ app.post('/api/stripe/webhook',express.raw({type:'application/json'}),(req,res)=
   }
   res.json({received:true});
 });
+app.post('/api/paypal/webhook',express.raw({type:'*/*',limit:'100kb'}),async(req,res)=>{try{res.status(await paypal.webhook(req,db,ppCtx())).end()}catch(e){console.error('paypal webhook:',e.message);res.status(500).end()}});
 app.use(express.json({limit:'20kb'}));app.use(sess);
 const auth=(req,res,next)=>{const u=req.session.uid&&getUser(req.session.uid);if(!u)return res.status(401).json({error:'Please log in'});req.user=u;next()};
 
 const ICE=()=>{const l=[{urls:(process.env.STUN_URL||'stun:stun.l.google.com:19302').split(',')}];
   if(process.env.TURN_URL)l.push({urls:process.env.TURN_URL.split(',').map(s=>s.trim()),username:process.env.TURN_USER||'',credential:process.env.TURN_PASS||''});return l};
 const PREMIUM_USD=+process.env.PREMIUM_USD||9.99;
-app.get('/api/config',(req,res)=>res.json({demo:DEMO,payments:!!stripe,premium_usd:PREMIUM_USD,stripe_test:!!stripe&&/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY||'')}));
+app.get('/api/config',(req,res)=>res.json({demo:DEMO,payments:!!stripe&&STRIPE_LIVE,stripe_live:STRIPE_LIVE,paypal:paypal.enabled()?{client_id:process.env.PAYPAL_CLIENT_ID,env:paypal.ENV}:null,premium_usd:PREMIUM_USD,stripe_test:!!stripe&&/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY||'')}));
 let iceCache={t:0,list:null};
 async function dynamicIce(){ // Cloudflare Realtime TURN (CF_TURN_KEY_ID+CF_TURN_API_TOKEN) or Metered (METERED_DOMAIN+METERED_API_KEY); cached 1h
   if(iceCache.list&&Date.now()-iceCache.t<36e5)return iceCache.list;let list=null;
@@ -220,14 +224,14 @@ app.delete('/api/users/:name/follow',auth,(req,res)=>{const u=db.prepare('SELECT
 app.get('/api/streams',(req,res)=>res.json([...rooms.values()].filter(r=>!(req.session.uid&&isBlocked(req.session.uid,r.uid))).map(r=>({id:r.id,title:r.title,tags:r.tags||'',viewers:r.viewers.size,hearts:r.hearts||0,started:r.started,dating:settingsOf(getUser(r.uid)).dating_mode,user:pub(getUser(r.uid)),distance:req.session.uid?distLabel(getUser(req.session.uid),getUser(r.uid)):null,near:req.session.uid?distOk(getUser(req.session.uid),getUser(r.uid),req.query):true,guest:r.guest?pub(getUser(r.guest.uid)):null,
   following:!!(req.session.uid&&db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(req.session.uid,r.uid))}))));
 
-app.post('/api/checkout',moneyLimit,auth,async(req,res)=>{if(!stripe)return res.status(503).json({error:'Payments not connected yet'});
+app.post('/api/checkout',moneyLimit,auth,async(req,res)=>{if(!stripe||!STRIPE_LIVE)return res.status(503).json({error:'Payments not connected yet'});
   const p=Number.isInteger(req.body?.pack)&&COIN_PACKAGES[req.body.pack];if(!p)return res.status(400).json({error:'Unknown pack'});
   try{const s=await stripe.checkout.sessions.create({mode:'payment',client_reference_id:String(req.user.id),
     line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:Math.round(p.p*100),product_data:{name:`${p.c.toLocaleString()} Tap.in coins`}}}],
     success_url:BASE_URL+'/?paid=1',cancel_url:BASE_URL+'/?paid=0'});
     db.prepare("INSERT INTO purchases(user_id,stripe_session,coins,usd,status) VALUES(?,?,?,?,'pending')").run(req.user.id,s.id,p.c,p.p);res.json({url:s.url})}
   catch(e){res.status(502).json({error:'Stripe error: '+e.message})}});
-app.post('/api/checkout/premium',moneyLimit,auth,async(req,res)=>{if(!stripe)return res.status(503).json({error:'Payments not connected yet'});
+app.post('/api/checkout/premium',moneyLimit,auth,async(req,res)=>{if(!stripe||!STRIPE_LIVE)return res.status(503).json({error:'Payments not connected yet'});
   try{const s=await stripe.checkout.sessions.create({mode:'payment',client_reference_id:String(req.user.id),
     line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:Math.round(PREMIUM_USD*100),product_data:{name:'Tap.in Premium — 30 days'}}}],
     success_url:BASE_URL+'/?paid=premium',cancel_url:BASE_URL+'/?paid=0'});
@@ -324,6 +328,12 @@ app.post('/api/password/reset',authLimit,async(req,res)=>{const{token,password}=
   const r=db.prepare('SELECT * FROM pw_resets WHERE token_hash=?').get(sha(token));if(!r||r.used||r.expires_at<Date.now())return res.status(400).json({error:'This reset link is invalid or expired. Ask for a new one.'});
   const h=await bcrypt.hash(password,12);db.transaction(()=>{db.prepare('UPDATE pw_resets SET used=1 WHERE token_hash=?').run(r.token_hash);db.prepare('UPDATE users SET pass=? WHERE id=?').run(h,r.user_id)})();
   killSessions(r.user_id);res.json({ok:1})});
+// ---- PayPal checkout (Orders v2): server sets price, creates and captures; credit only after a matching capture ----
+const ppCtx=()=>({COIN_PACKAGES,PREMIUM_USD,BASE_URL,onPaid:(uid,kind)=>{pushBalance(uid);if(kind==='premium')io.to('u'+uid).emit('premium',me(getUser(uid)))}});
+app.post('/api/paypal/order',moneyLimit,auth,async(req,res)=>{if(!paypal.enabled())return res.status(503).json({error:'PayPal not connected yet'});
+  try{res.json(await paypal.createOrder(db,req.user.id,req.body||{},ppCtx()))}catch(e){res.status(e.status||502).json({error:e.status?e.message:'PayPal error, please try again'});if(!e.status)console.error('paypal order:',e.message)}});
+app.post('/api/paypal/capture',moneyLimit,auth,async(req,res)=>{if(!paypal.enabled())return res.status(503).json({error:'PayPal not connected yet'});
+  try{const r=await paypal.capture(db,req.user.id,req.body?.orderID,ppCtx());res.json({...r,me:me(getUser(req.user.id))})}catch(e){res.status(e.status||502).json({error:e.status?e.message:'PayPal error, please try again'});if(!e.status)console.error('paypal capture:',e.message)}});
 // ---- Admin: manual coin credits (user #13 only) ----
 const GRANT_MAX=100000;
 const adminOnly=(req,res,next)=>auth(req,res,()=>req.user.id===ADMIN_ID?next():res.status(403).json({error:'Admins only'}));
