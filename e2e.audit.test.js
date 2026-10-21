@@ -33,8 +33,8 @@ const admin=(p,b)=>fetch(URL+'/api/admin-tmp/'+p,{method:b?'POST':'GET',headers:
  r=await anon('/api/password/reset',{method:'POST',body:{token:'0'.repeat(64),password:'whatever12'}});ok(r.s===400,'bogus reset token refused');
  // sockets
  const sock=j=>io(URL,{extraHeaders:{cookie:j.ck(),origin:URL},transports:['websocket']});
- const sa=sock(A),sb=sock(B);await new Promise(x=>sa.on('connect',x));await new Promise(x=>sb.on('connect',x));
- const em=(s,e,d)=>new Promise(x=>s.emit(e,d,x));
+ const sa=sock(A),sb=sock(B);sa.on('err',m=>console.log('A err',m));sb.on('err',m=>console.log('B err',m));for(const s of [sa,sb])if(!s.connected)await new Promise(x=>s.once('connect',x));
+ const em=(s,e,d)=>new Promise((x,y)=>{const t=setTimeout(()=>y(new Error('timeout '+e)),8000);s.emit(e,d,v=>{clearTimeout(t);x(v)})});
  const live=await em(sa,'golive',{title:xss});ok(live.id>0,'A went live');
  const j=await em(sb,'join',{id:live.id});ok(j.ok,'B joined');
  const bal0=(await B('/api/me')).j.coins,dia0=(await A('/api/me')).j.diamonds;
