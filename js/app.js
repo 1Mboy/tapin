@@ -105,7 +105,7 @@ function connect(){if(sock)return;api("/api/ice").then(r=>S.ice=r.iceServers).ca
  sock.on("ended",()=>{if(S.route=="viewer"){toast("Stream ended");S.view=null;go("#/live")}});
  sock.on("kicked",()=>{toast("You were removed from this stream");S.view=null;go("#/live")});
  sock.on("viewer",({sid})=>hostPeer(sid));
- sock.on("viewer-left",({sid})=>{S.peers[sid]?.close();delete S.peers[sid];S.gout[sid]?.close();delete S.gout[sid];S.greqs=(S.greqs||[]).filter(r=>r.sid!=sid);drawReqs()});
+ sock.on("viewer-left",({sid})=>{S.peers[sid]?.close();delete S.peers[sid];S.vout[sid]?.close();delete S.vout[sid];S.gout[sid]?.close();delete S.gout[sid];S.greqs=(S.greqs||[]).filter(r=>r.sid!=sid);drawReqs()});
  sock.on("guest-req",r=>{S.greqs=[...(S.greqs||[]).filter(x=>x.sid!=r.sid),r];drawReqs();guestReqSheet(r)});
  sock.on("guest-cancel",({sid})=>{S.greqs=(S.greqs||[]).filter(r=>r.sid!=sid);drawReqs()});
  sock.on("guest-pending",()=>{S.guestPending=true;updGuestUI();toast("Guest request sent — waiting for the host")});
@@ -117,6 +117,12 @@ function connect(){if(sock)return;api("/api/ice").then(r=>S.ice=r.iceServers).ca
  sock.on("guest-end",({sid})=>{const g=S.gs[sid];if(g&&sid!=sock.id)addChat(`<span class="muted">${nm(g.user)} left the guest seat</span>`);endGuestLocal(sid)});
  sock.on("premium",m=>{setMe(m);toast("🚀 Premium activated!");if(S.route=="premium")premium()});
  sock.on("signal",onSignal);
+ sock.on("vs-invite",vsInviteSheet);sock.on("vs-invite-gone",({id})=>{if($(`.vsinv[data-id="${id}"]`)){clearInterval(S.vsic);closePops();toast("VS invite expired")}});
+ sock.on("vs-declined",({user,timeout})=>{clearInterval(S.vscd);closePops();toast(`${nm(user)} ${timeout?"didn't answer":"declined your VS challenge"}`)});
+ sock.on("vs-start",st=>{closePops();vsApply(st);const{R}=vsSides(st);addChat(`<b class="gold">⚔ VS battle started vs ${nm(R.user)}! Tap a side to gift.</b>`)});
+ sock.on("vs-score",st=>{if(S.vs?.id==st.id)vsApply(st)});sock.on("vs-result",st=>vsApply(st));
+ sock.on("vs-end",({id})=>{if(!S.vs||S.vs.id==id){vsClear();toast("VS battle over")}});
+ sock.on("vs-peers",({sids})=>{if(S.live)sids.forEach(vsOffer)});
  sock.on("unread",n=>{S.unread=n;badges()});
  sock.on("activity",a=>{S.act=a.unread;badges();api("/api/friends").then(r=>{S.freq=r.requests.length;badges()}).catch(()=>{})});
  sock.on("dm",m=>{const other=m.mine?m.with:m.from;if(S.route=="chats"&&S.dm?.user.username==other){dmAdd(m);if(!m.mine)api(`/api/chats/${encodeURIComponent(other)}/read`,{method:"POST"}).then(r=>{S.unread=r.unread;badges()})}
@@ -127,12 +133,56 @@ const nameColor=n=>`hsl(${[205,45,190,215,35,180][hue(n)%6]},85%,${[62,60,58,66,
 const ice=()=>({iceServers:S.ice||[{urls:["stun:stun.l.google.com:19302"]}]});
 async function hostPeer(sid){if(!S.stream)return;const pc=new RTCPeerConnection(ice());S.peers[sid]=pc;S.stream.getTracks().forEach(t=>pc.addTrack(t,S.stream));pc.getSenders().forEach(sd=>{if(sd.track?.kind!="video")return;try{const pr=sd.getParameters();pr.encodings=pr.encodings?.length?pr.encodings:[{}];pr.encodings[0].maxBitrate=2500000;pr.degradationPreference="balanced";sd.setParameters(pr).catch(()=>{})}catch(e){}});
  pc.onicecandidate=e=>e.candidate&&sock.emit("signal",{to:sid,data:{ice:e.candidate}});await pc.setLocalDescription(await pc.createOffer());sock.emit("signal",{to:sid,data:{sdp:pc.localDescription}})}
-async function onSignal({from,data}){if(data.g)return onGSignal(from,data);let pc=S.peers[from];
+async function onSignal({from,data}){if(data.v)return onVSignal(from,data);if(data.g)return onGSignal(from,data);let pc=S.peers[from];
  if(data.sdp?.type=="offer"){pc?.close();pc=S.peers[from]=new RTCPeerConnection(ice());pc.onicecandidate=e=>e.candidate&&sock.emit("signal",{to:from,data:{ice:e.candidate}});
   pc.ontrack=e=>{const v=$("#rv");if(v){attachV(v,e.streams[0],false);$("#vph")?.remove()}};
   await pc.setRemoteDescription(data.sdp);await pc.setLocalDescription(await pc.createAnswer());sock.emit("signal",{to:from,data:{sdp:pc.localDescription}})}
  else if(data.sdp)await pc?.setRemoteDescription(data.sdp);else if(data.ice)await pc?.addIceCandidate(data.ice).catch(()=>{})}
-const closePeers=()=>{Object.values(S.peers).forEach(p=>p.close());S.peers={};closeG()};
+const closePeers=()=>{Object.values(S.peers).forEach(p=>p.close());S.peers={};closeG();vsClear()};
+// ---- VS battle (Tagged/Bigo PK): side-by-side hosts, score bar, server clock. Left = this room's host (blue), right = opponent (gold). ----
+S.vout={};S.vin={};S.vs=null;S.vsStream=null;
+const vsRoomUid=()=>S.live?S.me.id:S.view?.user?.id;
+const vsSides=st=>{const i=st.sides.findIndex(s=>s.uid==vsRoomUid());const l=i<0?0:i;return{li:l,ri:1-l,L:st.sides[l],R:st.sides[1-l]}};
+const mmss=s=>{s=Math.max(0,Math.ceil(s));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0")};
+const vsAvs=t=>(t||[]).map((u,i)=>`<span class="vsa" title="${nm(u)}">${av(u,24)}<i class="tr t${i}">${i+1}</i></span>`).join("");
+function vsMenu(){if(S.vs){const p=S.vs.phase=="battle";if(confirm(p?"End the battle now? This counts as a forfeit — the other host wins.":"End the punishment round and go back to your normal stream?"))sock.emit("vs-forfeit",{},r=>r?.error&&toast(r.error));return}
+ if(gCount())return toast("Remove your guests before starting a VS battle");
+ sheet(`<div class="shd"><b>⚔ VS Battle</b><button class="x" onclick="closePops()">✕</button></div><div class="pad vsp"><button class="vsrand" id="vsrand" onclick="vsRandom()"><b>🎲 Random match</b><small>Battle any host who is waiting · ${mmss(300)} rounds</small></button>
+  <h4>CHALLENGE A LIVE HOST</h4><div id="vslist" class="vslist"><small class="muted">Loading…</small></div></div>`,"vssheet");
+ sock.emit("vs-list",{},r=>{const e=$("#vslist");if(!e)return;if(r?.error)return e.innerHTML=`<small class="muted">${esc(r.error)}</small>`;
+  if(r.waiting)$("#vsrand small").textContent="🟢 A host is waiting — tap to battle now";
+  e.innerHTML=r.hosts.length?r.hosts.map(h=>`<div class="vsrow">${av(h.user,44)}<span class="vsi"><b>${nm(h.user)}</b><small>Lv ${h.user.level||1} · 👁 ${fmt(h.viewers)} · ⚔ ${fmt(h.user.vs_wins||0)} wins</small></span><button class="btn sm ${h.busy?"out":"pri"}" ${h.busy?"disabled":""} onclick="vsChallenge(${h.stream},'${esc(nm(h.user)).replace(/'/g,"\\'")}')">${h.busy?"Busy":"Challenge"}</button></div>`).join(""):'<p class="muted">No other hosts are live right now. Try Random match to wait for one.</p>'})}
+function vsWait(txt){closePops();sheet(`<div class="pad vswait"><div class="vsring"><b>VS</b></div><p>${txt}</p><button class="btn out full" onclick="sock.emit('vs-cancel');closePops();toast('Cancelled')">Cancel</button></div>`,"center")}
+function vsChallenge(stream,name){sock.emit("vs-invite",{stream},r=>{if(r?.error)return toast(r.error);vsWait(`Waiting for <b>${name}</b> to accept… <i id="vscd">${r.secs}</i>s`);let n=r.secs;clearInterval(S.vscd);S.vscd=setInterval(()=>{const e=$("#vscd");if(!e||--n<0)return clearInterval(S.vscd);e.textContent=n},1000)})}
+function vsRandom(){sock.emit("vs-random",{},r=>{if(r?.error)return toast(r.error);if(r.waiting)vsWait("Looking for an opponent… You'll be matched with the next host who taps Random match.")})}
+function vsInviteSheet({id,user,secs}){closePops();sheet(`<div class="pad vsinv" data-id="${esc(id)}"><div class="vsinvh">⚔ VS CHALLENGE</div>${av(user,72)}<p><b>${nm(user)}</b> challenges you to a ${mmss(300)} VS battle!</p><div class="vscount"><i id="vsic">${secs}</i>s</div>
+ <div class="row2"><button class="btn out" onclick="vsAnswer('${esc(id)}',false)">Decline</button><button class="btn pri" onclick="vsAnswer('${esc(id)}',true)">Accept</button></div></div>`,"center");
+ let n=secs;clearInterval(S.vsic);S.vsic=setInterval(()=>{const e=$("#vsic");if(!e)return clearInterval(S.vsic);if(--n<=0){clearInterval(S.vsic);closePops();toast("VS invite expired")}else e.textContent=n},1000)}
+function vsAnswer(id,ok){clearInterval(S.vsic);closePops();sock.emit("vs-answer",{id,accept:ok},r=>r?.error&&toast(r.error))}
+function vsTap(right){const st=S.vs;if(!st)return;const{L,R}=vsSides(st),u=right?R.user:L.user;if(S.live)return userCard(u.username);if(st.phase!="battle")return userCard(u.username);giftSheet(u.username,nm(u))}
+function vsApply(st){const prev=S.vs;S.vs=st;S.vsOff=st.now-Date.now();const root=$(".lvx")||$(".vstage"),sg=$("#stg");if(!root||!sg)return;const{L,R,li,ri}=vsSides(st);
+ root.classList.add("vsmode");sg.dataset.vs="1";
+ if(!sg.querySelector(".vsopp")){sg.insertAdjacentHTML("beforeend",`<div class="tl vsopp" data-vs="1">${vids("vsv")}<div class="vph" id="vsph">${cover(R.user)}<span class="spin"></span></div></div>`);if(S.vsStream)vsAttach(S.vsStream)}
+ if(!$("#vsui"))root.insertAdjacentHTML("beforeend",`<div id="vsui" class="vsui"><div class="vsvid"><button class="vsside l" onclick="vsTap(0)" aria-label="Left host"></button><button class="vsside r" onclick="vsTap(1)" aria-label="Right host"></button>
+  <span class="vsname l"></span><span class="vsname r"></span><div class="vstimer"><b>VS</b><i id="vst">5:00</i></div><div class="vsres l"></div><div class="vsres r"></div></div>
+  <div class="vsbar"><div class="vsfl"><b class="vsnum" id="vsl">0</b></div><div class="vsfr"><b class="vsnum" id="vsr">0</b></div><i class="vsmid">⚡</i></div><div class="vstop"><div class="l" id="vstl"></div><div class="r" id="vstr"></div></div></div>`);
+ $("#vsui .vsname.l").innerHTML=`${av(L.user,22)}<b>${nm(L.user)}</b>`;$("#vsui .vsname.r").innerHTML=`<b>${nm(R.user)}</b>${av(R.user,22)}`;
+ const a=st.scores[li],b=st.scores[ri],p=a+b?Math.min(92,Math.max(8,a/(a+b)*100)):50;$(".vsfl").style.width=p+"%";$(".vsfr").style.width=(100-p)+"%";$("#vsl").textContent=fmt(a);$("#vsr").textContent=fmt(b);
+ $("#vstl").innerHTML=vsAvs(L.top);$("#vstr").innerHTML=vsAvs(R.top);
+ const ui=$("#vsui");ui.dataset.phase=st.phase;
+ if(st.phase=="punish"){const w=st.winner==null?null:st.winner==L.uid?"l":"r";for(const s of["l","r"]){const e=$(`#vsui .vsres.${s}`);const t=w==null?"DRAW":w==s?"WIN":"LOSE";e.className=`vsres ${s} on ${t.toLowerCase()}`;e.innerHTML=`${w==s?'<i class="crown">👑</i>':""}<b>${t}</b>`}
+  if(prev?.phase!="punish"){const me=st.winner==null?"It's a draw!":st.winner==L.uid?`${nm(L.user)} wins!`:`${nm(R.user)} wins!`;const why=st.reason=="forfeit"?" (forfeit)":st.reason=="disconnect"?" (opponent left)":"";addChat?.(`<b class="gold">⚔ ${me}${why}</b>`)}}
+ clearInterval(S.vstm);const tick=()=>{const e=$("#vst");if(!e||!S.vs)return clearInterval(S.vstm);const left=(S.vs.ends-(Date.now()+S.vsOff))/1000;e.textContent=(S.vs.phase=="punish"?"PUNISH ":"")+mmss(left);e.parentElement.classList.toggle("hot",S.vs.phase=="battle"&&left<=10)};tick();S.vstm=setInterval(tick,250);
+ setTimeout(()=>$$("#stg video.vfg").forEach(fitVideo),80)}
+function vsAttach(stream){S.vsStream=stream;const v=$("#vsv");if(!v)return;v.dataset.remote=1;v.muted=false;attachV(v,stream,false);$("#vsph")?.remove()}
+function vsClear(){clearInterval(S.vstm);S.vs=null;S.vsStream=null;Object.values(S.vout).forEach(p=>p.close());Object.values(S.vin).forEach(p=>p.close());S.vout={};S.vin={};
+ $$(".vsopp,#vsui").forEach(e=>e.remove());$$(".vsmode").forEach(e=>e.classList.remove("vsmode"));const sg=$("#stg");if(sg)delete sg.dataset.vs;setTimeout(()=>$$("#stg video.vfg").forEach(fitVideo),80)}
+function vPC(sid,dir){const pc=new RTCPeerConnection(ice());pc.onicecandidate=e=>e.candidate&&sock.emit("signal",{to:sid,data:{v:1,vd:dir,ice:e.candidate}});return pc}
+async function vsOffer(sid){if(!S.stream)return;S.vout[sid]?.close();const pc=S.vout[sid]=vPC(sid,"o");S.stream.getTracks().forEach(t=>pc.addTrack(t,S.stream));
+ await pc.setLocalDescription(await pc.createOffer());sock.emit("signal",{to:sid,data:{v:1,vd:"o",sdp:pc.localDescription}})}
+async function onVSignal(from,data){if(data.sdp?.type=="offer"){S.vin[from]?.close();const pc=S.vin[from]=vPC(from,"a");pc.ontrack=e=>vsAttach(e.streams[0]);
+  await pc.setRemoteDescription(data.sdp);await pc.setLocalDescription(await pc.createAnswer());sock.emit("signal",{to:from,data:{v:1,vd:"a",sdp:pc.localDescription}});return}
+ const pc=data.vd=="o"?S.vin[from]:S.vout[from];if(data.sdp)await pc?.setRemoteDescription(data.sdp);else if(data.ice)await pc?.addIceCandidate(data.ice).catch(()=>{})}
 // ---- Multi-guest (Tagged-style split screen). Outbound = my camera to others (S.gout), inbound = a guest's camera to me (S.gin). ----
 S.gout={};S.gin={};S.gs={};S.vlist=[];
 const sidOf=n=>(S.vlist||[]).find(v=>v.user.username==n)?.sid;
@@ -173,7 +223,7 @@ async function userCard(n){if(!n)return;const host=S.live?S.me:S.view?.user,amHo
  let u=vi?.user||(gsid&&S.gs[gsid].user)||(isHost&&host)||{username:n};
  const box=sheet(`<div class="ucard" id="ucard"><div class="ucav">${av(u,84)}</div><button class="x ucx" onclick="closePops()">✕</button><b class="ucn">${nm(u)}</b><div class="ucb"></div><div class="ucact"></div></div>`,"ucsheet");
  const draw=(u,fol)=>{const ib=(i,t,f,c="")=>`<button class="ucbtn ${c}" onclick="${f}"><i>${i}</i><small>${t}</small></button>`;const en=esc(n).replace(/'/g,"\\'");
-  box.querySelector(".ucb").innerHTML=`${u.verified?'<span class="bv">✔ Verified</span>':""}<span class="lvb">Lv ${u.level||1}</span>${isHost?'<span class="bh">HOST</span>':""}${vi?.fan?`<span class="bf">🏆 Top fan #${vi.fan}</span>`:""}${vi?.bouncer?'<span class="bb">🛡 Bouncer</span>':""}${u.new_user?'<span class="bn">🌱 New</span>':""}${gsid?'<span class="bg">🎥 GUEST</span>':""}${u.premium?'<span class="bp">VIP</span>':""}${vi?.muted?'<span class="bm">🔇 Muted</span>':""}${u.city?`<span class="bc2">📍 ${esc(u.city)}</span>`:""}`;
+  box.querySelector(".ucb").innerHTML=`${u.verified?'<span class="bv">✔ Verified</span>':""}<span class="lvb">Lv ${u.level||1}</span>${isHost?'<span class="bh">HOST</span>':""}${vi?.fan?`<span class="bf">🏆 Top fan #${vi.fan}</span>`:""}${vi?.bouncer?'<span class="bb">🛡 Bouncer</span>':""}${u.new_user?'<span class="bn">🌱 New</span>':""}${u.vs_wins?`<span class="bvs">⚔ ${fmt(u.vs_wins)} VS ${u.vs_wins==1?"win":"wins"}</span>`:""}${gsid?'<span class="bg">🎥 GUEST</span>':""}${u.premium?'<span class="bp">VIP</span>':""}${vi?.muted?'<span class="bm">🔇 Muted</span>':""}${u.city?`<span class="bc2">📍 ${esc(u.city)}</span>`:""}`;
   if(self){box.querySelector(".ucact").innerHTML=`<button class="btn out full" onclick="closePops();go('#/u/${en}')">View my profile</button>`;return}
   let h=`<div class="ucrow">${ib(fol?"★":"＋",fol?"Following":"Follow",`ucFollow('${en}',${!!fol})`,fol?"on":"follow")}${ib("👤","Profile",`closePops();go('#/u/${en}')`)}${!amHost&&(isHost||gsid)?ib("🎁","Gift",`closePops();giftSheet('${isHost?"":en}')`):""}${ib("@","Mention",`ucMention('${en}')`)}</div>`;
   const amMod=amHost||!!S.view?.mod;
@@ -340,7 +390,7 @@ async function viewer(id){setNav("viewer","Live");connect();if(!S.streams.length
   <aside class="vside">${gpanel()}<div class="dchat"><div id="lchat" class="lchat d"><p class="sys">🛡 Let's keep Live fun! Nudity or obscene behavior results in account deletion.</p><p class="sys">Welcome to ${nm(u)}'s stream! 💙</p></div>
    <div class="vbar"><input id="ci" placeholder="Say something…" maxlength="300" onkeydown="event.key=='Enter'&&sendChat()"><button class="ib" onclick="sendChat()">➤</button></div></div></aside></div></div>
   ${others.length?`<section class="card also"><h4>VIEWERS ALSO WATCH</h4><div class="trow">${others.slice(0,8).map(s=>tile(s,1)).join("")}</div></section>`:""}</div>`);
- S.gs={};for(const g of r.guests||[])S.gs[g.sid]={user:g.user,mic:g.mic};S.vlist=r.viewers||[];S.mutedMe=r.muted;S.guestMine=false;S.guestPending=false;drawTiles();drawViewers();swipe($(".lvx")||$(".vstage"))}
+ S.gs={};for(const g of r.guests||[])S.gs[g.sid]={user:g.user,mic:g.mic};S.vlist=r.viewers||[];S.mutedMe=r.muted;S.guestMine=false;S.guestPending=false;drawTiles();drawViewers();swipe($(".lvx")||$(".vstage"));if(r.vs)vsApply(r.vs)}
 function viewerMore(){const v=S.view;sheet(`<div class="shd"><b>More</b><button class="x" onclick="closePops()">✕</button></div><div class="pm">
  <a onclick="closePops();xpInfo()">⭐ My level (Lv ${S.me.xp?.n||1})</a><a onclick="closePops();go('#/live/tools/gifters')">🏆 Top gifters</a><a onclick="closePops();guestReq()">👤 ${S.guestMine?"Leave guest spot":"Request to join as guest"}</a>
  <a onclick="closePops();${S.me.premium?"S.gtab='Exclusive';S.gpage=0;giftSheet()":"go('#/premium')"}">🚀 VIP gifts</a><a onclick="closePops();nextStream(1)">⌄ Next stream</a><a onclick="closePops();reportSheet(null,S.view?.id)">⚠ Report stream</a></div>`)}
@@ -361,7 +411,7 @@ function gpanel(){const list=GIFTS.map((g,k)=>[g,k]).filter(([g])=>g[4]==S.gtab)
  <div class="xpb"><i class="lvc">${x.n}</i><div class="bar blue"><i style="width:${x.pct}%"></i></div><small>${fmt(x.to_next||0)} XP to Lv ${x.n+1}</small></div>
  <p class="safe">🛡 For your safety, never share personal info or send money outside ${APP_NAME}. Nudity or obscene behavior results in account deletion.</p></div>`}
 function redrawG(){$$(".sg").forEach(e=>e.outerHTML=gpanel())}
-function giftSheet(to){sheet((to?`<div class="gto">🎁 Gift to <b>${esc(to)}</b></div>`:"")+gpanel(),"gsheet");S.giftTo=to||null}
+function giftSheet(to,label){sheet((to?`<div class="gto">🎁 Gift to <b>${label||esc(to)}</b></div>`:"")+gpanel(),"gsheet");S.giftTo=to||null}
 function sendGift(k){const g=GIFTS[k];if(locked(g))return toast(typeof g[5]=="number"?`Reach level ${g[5]} to unlock`:`${g[5]} only`);
  if(S.coins<g[2])return noCoins();sock.emit("gift",{k,to:S.giftTo||undefined},r=>{if(r?.error=="NOCOINS")return noCoins();if(r?.error)return toast(r.error);if(r?.xp){const up=r.xp.n>(S.me.xp?.n||1);S.me.xp=r.xp;redrawG();if(up)toast("🎉 Level up! You're now level "+r.xp.n)}})}
 function noCoins(){sheet(`<div class="shd"><b>Not enough coins</b><button class="x" onclick="closePops()">✕</button></div><p class="pad">Refill your coins to keep sending gifts.</p><div class="pad"><button class="btn pri full" onclick="go('#/gold')">Refill Coins</button></div>`,"center")}
@@ -384,11 +434,11 @@ function broadcaster(){const L=S.live,ph=isPhone(),stage=`${stg(vids("bv",1),S.m
    <span class="sp"></span><div class="lx-fans" id="topg" onclick="fansSheet()"></div><div class="lx-vw" id="vav"></div><span class="lx-cnt" role="button" onclick="viewerSheet()">👁 <i data-st="viewers">0</i></span><button class="lx-x end" onclick="endLive()" title="End stream">End</button></div>
   <div class="lx-stats"><span>♥ <i data-st="hearts">0</i></span><span>⭐ <i data-st="fans">0</i></span></div>
   <div class="lx-chat" id="lchat"><p class="sys">You're live! Viewers will appear here. 💙</p></div>
-  <div class="lx-bar"><button class="lbtn" onclick="hostMore()" title="More">☰<i class="rq" id="rqn"></i></button>${ctl}<input id="ci" placeholder="Chat with viewers…" onkeydown="event.key=='Enter'&&sendChat()"><button class="lbtn" onclick="shareLive()" title="Share">✈</button></div>
+  <div class="lx-bar"><button class="lbtn vsb" id="vsb" onclick="vsMenu()" title="VS battle">VS</button><button class="lbtn" onclick="hostMore()" title="More">☰<i class="rq" id="rqn"></i></button>${ctl}<input id="ci" placeholder="Chat with viewers…" onkeydown="event.key=='Enter'&&sendChat()"><button class="lbtn" onclick="shareLive()" title="Share">✈</button></div>
   <div id="greqs" hidden></div><a id="gkick" hidden></a></div>`);
  else V(`<div class="vw bc"><div class="vmain card"><div class="vhd"><a class="vu">${av(S.me,40)}<span><b>${nm(S.me)} <i class="lbadge">LIVE</i></b><span class="vst"><span>💎 <b data-st="stream_diamonds">0</b></span><span>⭐ <b data-st="fans">0</b></span><span>♥ <b data-st="hearts">0</b></span><span>👁 <b data-st="viewers">0</b></span><span>⏱ <b id="ltm">0m 0s</b></span></span></span></a>
  <span class="sp"></span><button class="btn sm red" onclick="endLive()">End Stream</button></div>
- <div class="vbody"><div class="vstage">${stage}<div class="topg" id="topg">${topHtml([])}</div><div class="vleft">${ctl.replace(/class="lbtn"/g,'class="vb"')}<button class="vb" onclick="shareLive()" title="Share">✈</button></div></div>
+ <div class="vbody"><div class="vstage">${stage}<div class="topg" id="topg">${topHtml([])}</div><div class="vleft"><button class="vb vsb" id="vsb" onclick="vsMenu()" title="VS battle">VS</button>${ctl.replace(/class="lbtn"/g,'class="vb"')}<button class="vb" onclick="shareLive()" title="Share">✈</button></div></div>
  <aside class="vside"><div class="sg"><div class="sgh"><b>STREAM TOOLS</b></div><a class="tmi" id="gkick" style="display:none" onclick="sock.emit('guest-end')">✕ Remove all guests</a><a class="tmi" onclick="go('#/live/tools/bouncers')">🛡 Bouncers</a>
   <div class="sgh"><b>GUEST REQUESTS</b></div><div id="greqs"></div><div class="sgh"><b>VIEWERS</b></div><div id="vlist2" class="vlist2"></div></div><div class="dchat"><div id="lchat" class="lchat d"><p class="sys">You're live! Viewers will appear here. 💙</p></div>
   <div class="vbar"><input id="ci" placeholder="Chat with viewers…" onkeydown="event.key=='Enter'&&sendChat()"><button class="ib" onclick="sendChat()">➤</button></div></div></aside></div></div></div>`);
@@ -489,7 +539,7 @@ const sw=(k,on)=>`<label class="sw"><input type="checkbox" ${on?"checked":""} on
 async function setSet(k,v){try{setMe(await api("/api/me/settings",{method:"PUT",body:{[k]:v}}));toast("Saved")}catch(e){toast(e.message)}}
 async function profile(){setNav("profile","Profile");setMe(await api("/api/me"));const m=S.me,s=m.settings;const fr=await api("/api/friends").catch(()=>({requests:[]}));S.freq=fr.requests.length;badges();
  V(`<div class="prw"><div class="prl"><div class="card pcard"><div class="pch">${av(m,96)}<div><h2>${nm(m)}${m.age?", "+m.age:""}</h2><small class="muted">@${esc(m.username)} · ${esc(m.city||"Add your city")}</small>
-  <div class="pbad">${lvlBadge(m.xp.n)}<i class="rkp">${esc(m.rank.label)}</i>${m.premium?'<i class="rkp prm">🚀 Premium</i>':""}</div></div></div>
+  <div class="pbad">${lvlBadge(m.xp.n)}<i class="rkp">${esc(m.rank.label)}</i><i class="rkp vsw">⚔ ${fmt(m.vs_wins||0)} VS wins</i>${m.premium?'<i class="rkp prm">🚀 Premium</i>':""}</div></div></div>
   <div class="pcb"><button class="btn pri" onclick="editProfile()">✎ Edit</button><button class="btn out" onclick="go('#/u/${esc(m.username)}')">👁 Preview</button></div></div>
  <div class="card"><h4 class="pad">MY PHOTOS</h4><div class="pad" id="myph"><span class="muted">Loading…</span></div></div>
  <a class="card premc" href="#/premium"><b>🚀 ${APP_NAME} Premium</b><small>See who likes you, boost your profile & more</small><i>›</i></a>
@@ -516,7 +566,7 @@ async function logout(){await api("/api/logout",{method:"POST"});sock?.disconnec
 async function userProfile(n){setNav("u","Profile");const u=await api("/api/users/"+encodeURIComponent(n));const self=u.username==S.me.username;
  const fb={none:["👥 Add Friend","pri","add"],sent:["⏳ Request Sent","out","del"],received:["✓ Accept Friend","pri","add"],friends:["✓ Friends","out","del"]}[u.friend||"none"];
  V(`<div class="card up"><div class="uph">${cover(u)}<div class="mgrad"></div>${u.live?`<button class="lbadge big" onclick="go('#/live/view/${u.stream_id}')">● LIVE — Watch</button>`:""}
- <div class="upi"><h2>${ageCity(u)} ${u.online?'<i class="od"></i>':""}</h2><small>📍 ${esc(u.city||"Somewhere")}${u.distance?" · "+esc(u.distance):""} · ${u.premium?"🚀 · ":""}${lvlBadge(u.level)} · ${esc(u.rank)}</small></div></div>
+ <div class="upi"><h2>${ageCity(u)} ${u.online?'<i class="od"></i>':""}</h2><small>📍 ${esc(u.city||"Somewhere")}${u.distance?" · "+esc(u.distance):""} · ${u.premium?"🚀 · ":""}${lvlBadge(u.level)} · ${esc(u.rank)} · <i class="rkp vsw">⚔ ${fmt(u.vs_wins||0)} VS wins</i></small></div></div>
  <div class="ups"><div><b>${fmt(u.followers)}</b><small>Fans</small></div><div><b>${fmt(u.following)}</b><small>Favorites</small></div><div><b>💎 ${fmt(u.received)}</b><small>Diamonds</small></div></div>
  ${self?`<div class="upb"><button class="btn pri" onclick="go('#/profile')">Back to my profile</button></div>`:`<div class="upb"><button class="btn pri" onclick="go('#/chats/${esc(u.username)}')">💬 Message</button>
   <button class="btn ${fb[1]}" onclick="friendAct('${esc(u.username)}','${fb[2]}')">${fb[0]}</button><button class="btn out" onclick="luvSend('${esc(u.username)}')" ${u.luv_today?"disabled":""}>💙 ${u.luv_today?"Luv sent":"Send Luv"}</button>
