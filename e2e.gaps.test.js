@@ -39,10 +39,10 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await A.mouse.click(10,10);await A.waitForTimeout(300);if(await A.$('.sheet-bg'))await A.click('.sheet-bg',{position:{x:10,y:10}});
  // co-host
  await A.click('#gbtn');await B.waitForSelector('.greq');await shot(B,'cohost_request');await B.click('.greq .btn.pri');
- await B.waitForFunction(()=>{const v=document.querySelector('#gv');return v&&v.videoWidth>0},null,{timeout:30000});ok(true,'host receives guest video over WebRTC');
- await A.waitForSelector('#gbox.on');await A.waitForFunction(()=>document.querySelector('#gv').videoWidth>0,null,{timeout:15000});ok(true,'guest sees own camera preview');await shot(A,'cohost_guest_view');await shot(B,'cohost_host_view');
+ await B.waitForFunction(()=>{const v=document.querySelector('#stg .tl[data-sid] video.vfg');return v&&v.videoWidth>0},null,{timeout:30000});ok(true,'host receives guest video over WebRTC');
+ await A.waitForSelector('#stg[data-n="2"]');await A.waitForFunction(()=>document.querySelector('#stg .tl[data-sid] video.vfg').videoWidth>0,null,{timeout:15000});ok(true,'guest sees own camera preview');await shot(A,'cohost_guest_view');await shot(B,'cohost_host_view');
  const ice=await A.evaluate(()=>api('/api/ice').then(r=>r.iceServers.some(s=>JSON.stringify(s.urls).includes('turn'))));log('TURN servers offered: '+ice);
- await B.click('#gbox .gx');await A.waitForFunction(()=>!document.querySelector('#gbox.on'));ok(true,'host removes guest');
+ await B.click('#stg .tl[data-sid] .gx');await A.waitForFunction(()=>document.querySelector('#stg').dataset.n=='1');ok(true,'host removes guest');
  await B.click('button:has-text("End")');await B.waitForSelector('.sum');log('stream ended');
  // discover with distance filter
  await A.goto(URL+'#/discover/near');await A.waitForSelector('.dgrid');await A.click('.fchips b');await A.waitForSelector('.dseg');await A.click('.dseg b:has-text("25")');await shot(A,'filters_distance');await A.click('.sheet .btn.pri.full');
