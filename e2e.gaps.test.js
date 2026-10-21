@@ -11,7 +11,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
   const p=await c.newPage();p.on('pageerror',e=>{errs.push(e.message);console.log('PAGEERR',e.message)});p.on('dialog',d=>d.accept());return p};
  const A=await mk({latitude:30.2672,longitude:-97.7431}),B=await mk(null);let n=41;
  const shot=async(p,name)=>{await p.waitForTimeout(500);await p.screenshot({path:`${OUT}/${String(++n).padStart(2,'0')}_${PFX}${name}.png`})};
- const signup=async(p,u,g)=>{await p.goto(URL);await p.waitForSelector('#un');await p.fill('#em',u+'@example.com');await p.fill('#un',u);await p.fill('#pw','secret123!');await p.fill('#dob','1992-05-05');
+ const signup=async(p,u,g)=>{await p.goto(URL);await p.waitForSelector('#un');await p.fill('#em',u+'@example.com');await p.fill('#un',u);await p.fill('#pw','secret123!');await p.fill('#dob','1992-05-05');await p.keyboard.press('Escape');await p.click('h2');
   await p.click(`#gsel b[data-v="${g}"]`);await p.check('#tos');await p.click('button:has-text("Create account")');await p.waitForSelector('#shell')};
  const ua='tmp_e2e_a'+T,ub='tmp_e2e_b'+T;console.log('USERS',ua,ub);
  await signup(A,ua,'f');await signup(B,ub,'m');log('signed up both');

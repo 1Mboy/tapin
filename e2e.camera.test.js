@@ -1,0 +1,20 @@
+// Camera layout test: CAM=/tmp/cam_1280x720.y4m HOST=user VIEWER=user [BASE_URL] [OUT] node e2e.camera.test.js
+const {chromium}=require('playwright');const fs=require('fs');
+const URL=(process.env.BASE_URL||'http://127.0.0.1:41209').replace(/\/?$/,'/'),OUT=process.env.OUT||'/tmp/camshots',TAG=process.env.TAG||'cam';fs.mkdirSync(OUT,{recursive:true});
+(async()=>{const args=['--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream'];if(process.env.CAM)args.push('--use-file-for-fake-video-capture='+process.env.CAM);
+ const br=await chromium.launch({executablePath:process.env.CHROME_PATH,args});const errs=[];
+ const phone={viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true},desk={viewport:{width:1440,height:900}};
+ const mk=async(o,u)=>{const c=await br.newContext({...o,permissions:['camera','microphone']});const p=await c.newPage();p.on('pageerror',e=>errs.push(e.message));p.on('dialog',d=>d.accept());
+  await p.goto(URL);await p.waitForSelector('#un');await p.click('text=Have an account? Log in');await p.fill('#lg',u);await p.fill('#pw','secret123!');await p.click('button:has-text("Log in")');await p.waitForSelector('#shell');return p};
+ const info=p=>p.evaluate(()=>[...document.querySelectorAll('video.vfg')].filter(v=>v.videoWidth).map(v=>{const t=v.srcObject?.getVideoTracks?.()[0];const s=t?.getSettings?.()||{};
+   return {id:v.id,video:v.videoWidth+'x'+v.videoHeight,box:v.parentElement.clientWidth+'x'+v.parentElement.clientHeight,fit:v.style.objectFit,mirror:getComputedStyle(v).transform!='none',zoom:s.zoom??'n/a',resizeMode:s.resizeMode??'n/a'}}));
+ const H=await mk(process.env.HOSTDESK?desk:phone,process.env.HOST),Vp=await mk(phone,process.env.VIEWER),Vd=await mk(desk,process.env.VIEWER);
+ await H.goto(URL+'#/golive');await H.waitForSelector('#pv.on');await H.waitForTimeout(1200);await H.screenshot({path:`${OUT}/${TAG}_golive.png`});console.log('golive',JSON.stringify(await info(H)));
+ await H.fill('#gt','Camera test');await H.click('#glb');await H.waitForSelector('#bv.on');
+ await Vp.goto(URL+'#/live');await Vp.waitForSelector('.feed .tile');await Vp.click('.feed .tile');await Vp.waitForSelector('#rv.on',{timeout:30000});
+ await Vp.fill('#ci','hello from the viewer');await Vp.press('#ci','Enter');for(let i=0;i<4;i++)await Vp.click('.hb');
+ await Vd.goto(URL+'#/live');await Vd.waitForSelector('.feed .tile');await Vd.click('.feed .tile');await Vd.waitForSelector('#rv.on',{timeout:30000});
+ await H.waitForTimeout(1500);await Vp.waitForTimeout(300);
+ await H.screenshot({path:`${OUT}/${TAG}_broadcaster.png`});await Vp.screenshot({path:`${OUT}/${TAG}_viewer_phone.png`});await Vd.screenshot({path:`${OUT}/${TAG}_viewer_desktop.png`});
+ console.log('broadcaster',JSON.stringify(await info(H)));console.log('viewer phone',JSON.stringify(await info(Vp)));console.log('viewer desktop',JSON.stringify(await info(Vd)));
+ await H.click('.lx-x.end, button:has-text("End Stream")');await H.waitForSelector('.sum');console.log('errors',errs.length,errs.slice(0,3));await br.close()})().catch(e=>{console.error(e);process.exit(1)});

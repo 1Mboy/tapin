@@ -8,7 +8,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
   const p=await c.newPage();p.on('pageerror',e=>{errs.push(e.message);console.log('PAGEERR',e.message)});p.on('dialog',d=>d.accept());return p};
  const A=await mk(),B=await mk(),D=await mk(true);let n=0;
  const shot=async(p,name)=>{await p.waitForTimeout(500);await p.screenshot({path:`${OUT}/${String(++n).padStart(2,'0')}_${name}.png`})};
- const signup=async(p,u,g)=>{await p.goto(URL);await p.waitForSelector('#un');await p.fill('#em',u+'@example.com');await p.fill('#un',u);await p.fill('#pw','secret123!');await p.fill('#dob','1992-05-05');
+ const signup=async(p,u,g)=>{await p.goto(URL);await p.waitForSelector('#un');await p.fill('#em',u+'@example.com');await p.fill('#un',u);await p.fill('#pw','secret123!');await p.fill('#dob','1992-05-05');await p.keyboard.press('Escape');await p.click('h2');
   await p.click(`#gsel b[data-v="${g}"]`);await p.check('#tos');await p.click('button:has-text("Create account")');await p.waitForSelector('#shell')};
  const ua='ann_'+T,ub='ben_'+T;
  await A.goto(URL);await A.waitForSelector('#un');await shot(A,'signup');await A.click('text=Have an account? Log in');await shot(A,'login');
@@ -24,8 +24,8 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await A.click('.gp b:has-text("WOMEN")');ok(!(await A.$('.feed .tile')),'WOMEN filter hides male streamer');await A.click('.gp b:has-text("MEN")');ok(!!(await A.$('.feed .tile')),'MEN filter shows Ben');await A.click('.gp b:has-text("ALL")');
  await A.click('.feed .tile');await A.waitForSelector('#rv.on',{timeout:20000});ok(true,'WebRTC video playing for viewer');await A.waitForTimeout(800);await shot(A,'viewer');
  await A.fill('#ci','hello ben!');await A.press('#ci','Enter');await B.waitForSelector('#lchat p:has-text("hello ben!")');ok(true,'live chat delivered');
- await A.click('.vleft .vb:nth-child(2)');await B.waitForFunction(()=>document.querySelector('[data-st="hearts"]')?.textContent!='0');ok(true,'heart counted');
- await A.click('#favb');await A.waitForSelector('#favb:has-text("Favorited")');
+ await A.click('.hb');await B.waitForFunction(()=>document.querySelector('[data-st="hearts"]')?.textContent!='0');ok(true,'heart counted');
+ await A.click('#favb');await A.waitForSelector('#favb.on');
  await A.click('.gbtn');await A.waitForSelector('.gsheet .g8');await shot(A,'gift_sheet');
  if(process.env.GRANT_COINS){await A.click('.gsheet .gf:not(.lk)');await B.waitForSelector('#lchat p:has-text("sent")');ok(true,'gift delivered to streamer');await A.waitForTimeout(300);
   await A.click('.sheet-bg',{position:{x:10,y:10}});await shot(A,'viewer_after_gift')}else await A.click('.sheet-bg',{position:{x:10,y:10}});

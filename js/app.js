@@ -90,7 +90,7 @@ function connect(){if(sock)return;api("/api/ice").then(r=>S.ice=r.iceServers).ca
  sock.on("heart",h=>{setStat("hearts",h.n);floatHeart()});
  sock.on("count",n=>setStat("viewers",n));
  sock.on("stats",st=>{for(const k in st)setStat(k,st[k])});
- sock.on("top",t=>{if(S.view)S.view.top=t;const e=$("#topg");if(e)e.innerHTML=topHtml(t)});
+ sock.on("top",t=>{if(S.view)S.view.top=t;const e=$("#topg");if(e)e.innerHTML=e.classList.contains("lx-fans")?fanAvs(t):topHtml(t)});
  sock.on("ended",()=>{if(S.route=="viewer"){toast("Stream ended");S.view=null;go("#/live")}});
  sock.on("kicked",()=>{toast("You were removed from this stream");S.view=null;go("#/live")});
  sock.on("viewer",({sid})=>hostPeer(sid));
@@ -99,7 +99,7 @@ function connect(){if(sock)return;api("/api/ice").then(r=>S.ice=r.iceServers).ca
  sock.on("guest-cancel",({sid})=>{S.greqs=(S.greqs||[]).filter(r=>r.sid!=sid);drawReqs()});
  sock.on("guest-pending",()=>{S.guestPending=true;updGuestUI();toast("Guest request sent — waiting for the host")});
  sock.on("guest-no",()=>{S.guestPending=false;updGuestUI();toast("The host declined your guest request")});
- sock.on("guest-ok",async({peers})=>{S.guestPending=false;try{S.gstream=await navigator.mediaDevices.getUserMedia({video:{width:480,height:640,facingMode:"user"},audio:true})}catch(e){toast("Camera needed to join as guest");sock.emit("guest-end");return}
+ sock.on("guest-ok",async({peers})=>{S.guestPending=false;try{S.gstream=await getCam("user")}catch(e){toast("Camera needed to join as guest");sock.emit("guest-end");return}
   S.guestMine=true;S.guest=S.me;showGuest(S.gstream,true);updGuestUI();toast("You're on! You are now a guest 🎥");for(const p of peers)gOffer(p)});
  sock.on("guest-peer",({sid})=>gOffer(sid));
  sock.on("guest",({user})=>{S.guest=user;updGuestUI();addChat(`<b class="gold">${esc(user.display_name||user.username)}</b> joined as a guest 🎥`)});
@@ -114,17 +114,17 @@ function connect(){if(sock)return;api("/api/ice").then(r=>S.ice=r.iceServers).ca
  sock.on("match",({user})=>matchPop(user))}
 const nameColor=n=>`hsl(${[205,45,190,215,35,180][hue(n)%6]},85%,${[62,60,58,66,62,60][hue(n)%6]}%)`;
 const ice=()=>({iceServers:S.ice||[{urls:["stun:stun.l.google.com:19302"]}]});
-async function hostPeer(sid){if(!S.stream)return;const pc=new RTCPeerConnection(ice());S.peers[sid]=pc;S.stream.getTracks().forEach(t=>pc.addTrack(t,S.stream));
+async function hostPeer(sid){if(!S.stream)return;const pc=new RTCPeerConnection(ice());S.peers[sid]=pc;S.stream.getTracks().forEach(t=>pc.addTrack(t,S.stream));pc.getSenders().forEach(sd=>{if(sd.track?.kind!="video")return;try{const pr=sd.getParameters();pr.encodings=pr.encodings?.length?pr.encodings:[{}];pr.encodings[0].maxBitrate=2500000;pr.degradationPreference="balanced";sd.setParameters(pr).catch(()=>{})}catch(e){}});
  pc.onicecandidate=e=>e.candidate&&sock.emit("signal",{to:sid,data:{ice:e.candidate}});await pc.setLocalDescription(await pc.createOffer());sock.emit("signal",{to:sid,data:{sdp:pc.localDescription}})}
 async function onSignal({from,data}){if(data.g)return onGSignal(from,data);let pc=S.peers[from];
  if(data.sdp?.type=="offer"){pc?.close();pc=S.peers[from]=new RTCPeerConnection(ice());pc.onicecandidate=e=>e.candidate&&sock.emit("signal",{to:from,data:{ice:e.candidate}});
-  pc.ontrack=e=>{const v=$("#rv");if(v){v.srcObject=e.streams[0];v.classList.add("on");$("#vph")?.remove();v.play?.().catch(()=>{v.muted=true;v.play().catch(()=>{})})}};
+  pc.ontrack=e=>{const v=$("#rv");if(v){attachV(v,e.streams[0],false);$("#vph")?.remove()}};
   await pc.setRemoteDescription(data.sdp);await pc.setLocalDescription(await pc.createAnswer());sock.emit("signal",{to:from,data:{sdp:pc.localDescription}})}
  else if(data.sdp)await pc?.setRemoteDescription(data.sdp);else if(data.ice)await pc?.addIceCandidate(data.ice).catch(()=>{})}
 const closePeers=()=>{Object.values(S.peers).forEach(p=>p.close());S.peers={};closeG()};
 // ---- Co-host (guest) video: separate peer connections tagged g:1 ----
 S.gpeers={};
-function showGuest(stream,mine){const v=$("#gv");if(!v)return;v.srcObject=stream;v.muted=!!mine;v.classList.toggle("mine",!!mine);$("#gbox")?.classList.add("on");v.play?.().catch(()=>{v.muted=true;v.play().catch(()=>{})})}
+function showGuest(stream,mine){const v=$("#gv");if(!v)return;v.muted=!!mine;$("#gbox")?.classList.add("on");attachV(v,stream,!!mine)}
 function closeG(){Object.values(S.gpeers||{}).forEach(p=>p.close());S.gpeers={};S.gstream?.getTracks().forEach(t=>t.stop());S.gstream=null;S.guest=null;const b=$("#gbox");if(b){b.classList.remove("on");$("#gv").srcObject=null}updGuestUI()}
 function gPeer(sid){S.gpeers[sid]?.close();const pc=S.gpeers[sid]=new RTCPeerConnection(ice());pc.onicecandidate=e=>e.candidate&&sock.emit("signal",{to:sid,data:{g:1,ice:e.candidate}});pc.ontrack=e=>showGuest(e.streams[0]);return pc}
 async function gOffer(sid){if(!S.gstream)return;const pc=gPeer(sid);S.gstream.getTracks().forEach(t=>pc.addTrack(t,S.gstream));await pc.setLocalDescription(await pc.createOffer());sock.emit("signal",{to:sid,data:{g:1,sdp:pc.localDescription}})}
@@ -138,11 +138,11 @@ function updGuestUI(){const b=$("#gbtn");if(b){b.classList.toggle("on",!!S.guest
 function guestReqSheet(r){sheet(`<div class="shd"><b>Guest request</b><button class="x" onclick="closePops()">✕</button></div><div class="pad greq">${av(r.user,64)}<p><b>${nm(r.user)}</b> wants to join your stream as a guest.</p>
  <div class="row2"><button class="btn out" onclick="guestAnswer('${r.sid}',false)">Decline</button><button class="btn pri" onclick="guestAnswer('${r.sid}',true)">Accept</button></div></div>`,"center")}
 function guestAnswer(sid,ok){sock.emit("guest-answer",{sid,accept:ok});S.greqs=(S.greqs||[]).filter(r=>r.sid!=sid);closePops();drawReqs()}
-function drawReqs(){const e=$("#greqs");if(!e)return;const l=S.greqs||[];e.innerHTML=l.length?l.map(r=>`<div class="gri">${av(r.user,32)}<b>${nm(r.user)}</b><span class="sp"></span><button class="btn sm out" onclick="guestAnswer('${r.sid}',false)">✕</button><button class="btn sm pri" onclick="guestAnswer('${r.sid}',true)">Accept</button></div>`).join(""):'<small class="muted">No guest requests right now.</small>'}
+function drawReqs(){const l=S.greqs||[];const n=$("#rqn");if(n)n.textContent=l.length||"";for(const e of [$("#greqs"),$("#greqs2")].filter(Boolean))e.innerHTML=l.length?l.map(r=>`<div class="gri">${av(r.user,32)}<b>${nm(r.user)}</b><span class="sp"></span><button class="btn sm out" onclick="guestAnswer('${r.sid}',false)">✕</button><button class="btn sm pri" onclick="guestAnswer('${r.sid}',true)">Accept</button></div>`).join(""):'<small class="muted">No guest requests right now.</small>'}
 function setStat(k,v){$$(`[data-st="${k}"]`).forEach(e=>e.textContent=fmt(v))}
 function addChat(h){const c=$("#lchat");if(!c)return;c.insertAdjacentHTML("beforeend",`<p>${h}</p>`);while(c.children.length>80)c.firstElementChild.remove();c.scrollTop=1e9}
 function giftPop(k){const f=document.createElement("div");f.className="gpop";f.innerHTML=gimg(k,"");document.body.append(f);setTimeout(()=>f.remove(),1600)}
-function floatHeart(){const box=$(".vstage");if(!box)return;const h=document.createElement("i");h.className="fh";h.textContent=["💙","💛","🤍"][Math.random()*3|0];h.style.left=(70+Math.random()*20)+"%";box.append(h);setTimeout(()=>h.remove(),1800)}
+function floatHeart(){const box=$(".hearts");if(!box)return;const h=document.createElement("i");h.className="fh";h.textContent=["💙","💛","🤍"][Math.random()*3|0];h.style.left=(70+Math.random()*20)+"%";box.append(h);setTimeout(()=>h.remove(),1800)}
 
 // ---------------- router ----------------
 async function render(){if(!S.me)return gate();shell();closePops();
@@ -215,27 +215,52 @@ function moreTools(id){sheet(`<div class="shd grad"><b>More Tools</b><button cla
  <a class="mt" onclick="navigator.clipboard?.writeText('${id}').then(()=>toast('Live ID copied'))">👤 <span>My Live ID<small>${id}</small></span><i class="cp">⧉</i></a>`,"center")}
 // ---------------- Live viewer ----------------
 const topHtml=t=>`<div class="tgh"><b>Top Gifters</b><a onclick="go('#/live/tools/gifters')">›</a></div>${[0,1,2].map(i=>{const u=t?.[i];return `<div class="tga">${u?`<a href="#/u/${esc(u.username)}">${av(u,38)}</a><i class="tr t${i}">${i+1}</i><small>💎${fmt(u.diamonds)}</small>`:`<span class="av ph" style="width:38px;height:38px">?</span><i class="tr t${i}">${i+1}</i>`}</div>`}).join("")}`;
+// ---- Camera: widest field of view, no digital zoom, no forced crop ----
+const portraitDev=()=>matchMedia("(orientation: portrait)").matches&&matchMedia("(pointer: coarse)").matches;
+const camVideo=face=>({facingMode:{ideal:face||"user"},width:{ideal:portraitDev()?720:1280},height:{ideal:portraitDev()?1280:720},resizeMode:{ideal:"none"}});
+async function noZoom(track){try{const c=track?.getCapabilities?.();if(c?.zoom)await track.applyConstraints({advanced:[{zoom:c.zoom.min}]})}catch(e){}}
+async function getCam(face,audio=true){let st;try{st=await navigator.mediaDevices.getUserMedia({video:camVideo(face),audio})}catch(e){if(e.name=="OverconstrainedError")st=await navigator.mediaDevices.getUserMedia({video:{facingMode:face||"user"},audio});else throw e}
+ await noZoom(st.getVideoTracks()[0]);return st}
+// Cover only when the video and its box have nearly the same shape; otherwise show the whole frame over a blurred copy.
+function fitVideo(v){if(!v||!v.videoWidth)return;const box=v.parentElement,cw=box.clientWidth,ch=box.clientHeight;if(!cw||!ch)return;const va=v.videoWidth/v.videoHeight,ca=cw/ch,r=Math.max(va,ca)/Math.min(va,ca);
+ const contain=r>1.15;box.classList.toggle("fitc",contain);v.style.objectFit=contain?"contain":"cover";box.dataset.fit=contain?"contain":"cover"}
+function attachV(v,stream,mirror){if(!v)return;v.srcObject=stream;const bg=v.parentElement.querySelector(":scope>.vbg");if(bg){bg.srcObject=stream;bg.muted=true;bg.play?.().catch(()=>{})}
+ v.parentElement.classList.toggle("mirror",!!mirror);v.classList.add("on");const f=()=>fitVideo(v);v.onloadedmetadata=f;v.onresize=f;setTimeout(f,300);v.play?.().catch(()=>{v.muted=true;v.play().catch(()=>{})})}
+addEventListener("resize",()=>$$("video.vfg").forEach(fitVideo));
+const vids=(id,muted)=>`<video class="vbg" autoplay muted playsinline aria-hidden="true"></video><video id="${id}" class="vfg" autoplay playsinline ${muted?"muted":""}></video>`;
+const gboxH=`<div class="gbox2" id="gbox"><video class="vbg" autoplay muted playsinline></video><video id="gv" class="vfg" autoplay playsinline></video><small id="gname"></small><button class="gx" title="End guest" onclick="S.live?sock.emit('guest-end'):guestLeave()">✕</button></div>`;
+const fanAvs=t=>(t||[]).slice(0,3).map((u,i)=>`<a class="fav3" href="#/u/${esc(u.username)}">${av(u,30)}<i class="tr t${i}">${i+1}</i></a>`).join("");
+
+// ---------------- Live viewer (Tagged layout: full-bleed on phone, video + gift/chat column on desktop) ----------------
 async function viewer(id){setNav("viewer","Live");connect();if(!S.streams.length)await loadLive();
  const r=await new Promise(ok=>sock.emit("join",{id},ok));if(r.error){toast(r.error);return go("#/live")}
  S.view={...r,top:r.top};S.me.xp=r.xp||S.me.xp;const u=r.user,st=r.stats;const others=S.streams.filter(s=>s.id!=id);
- V(`<div class="vw"><div class="vmain card"><div class="vhd"><a class="vu" href="#/u/${esc(u.username)}">${av(u,44)}<span><b>${nm(u)}</b><small>${esc(r.title||"")}${r.tags?" "+esc(r.tags):""}</small></span></a>
-  <div class="vst"><span>💎 <b data-st="diamonds">${fmt(st.diamonds)}</b></span><span>⭐ <b data-st="fans">${fmt(st.fans)}</b></span><span>👁 <b data-st="viewers">${fmt(st.viewers)}</b></span><span>♥ <b data-st="hearts">${fmt(st.hearts)}</b></span></div>
-  <span class="sp"></span><button class="btn sm ${r.following?"out":"pri"}" id="favb" onclick="favToggle('${esc(u.username)}')">${r.following?"★ Favorited":"☆ Favorite"}</button><button class="btn sm dark" onclick="go('#/live')">Exit</button></div>
-  <div class="vbody"><div class="vstage"><video id="rv" autoplay playsinline></video><div id="vph" class="vph">${cover(u)}<span class="spin"></span><small>Connecting to stream…</small></div>
-   <div class="topg" id="topg">${topHtml(r.top)}</div><div class="gbox2" id="gbox"><video id="gv" autoplay playsinline></video><small id="gname"></small><button class="gx" title="End guest" onclick="S.live?sock.emit('guest-end'):guestLeave()">✕</button></div>
-   <div class="vleft"><button class="vb xp" onclick="xpInfo()" title="Your level"><i>${S.me.xp.n}</i><small>XP</small></button><button class="vb" onclick="sock.emit('heart')" title="Send heart">♥</button>
-    <button class="vb" id="gbtn" onclick="guestReq()" title="Request to join as guest">👤+</button><button class="vb vip" onclick="S.me.premium?(S.gtab='Exclusive',S.gpage=0,isPhone()?giftSheet():redrawG()):go('#/premium')" title="VIP">VIP</button></div>
-   <div class="vchat ov"><div id="lchat" class="lchat"><p class="sys">Welcome to ${nm(u)}'s stream! Be kind. 💙</p></div>
-    <div class="vbar"><input id="ci" placeholder="Say something…" maxlength="300" onkeydown="event.key=='Enter'&&sendChat()"><button class="ib" onclick="sendChat()">➤</button>
-     <button class="ib mob gbtn" onclick="giftSheet()">🎁</button><button class="ib mob" onclick="sock.emit('heart')">♥</button></div></div>
-   <button class="swn mob" onclick="nextStream(1)" title="Next stream">⌄</button></div>
-  <aside class="vside">${gpanel()}</aside></div></div>
+ const ph=isPhone(),stage=`${vids("rv")}<div id="vph" class="vph">${cover(u)}<span class="spin"></span><small>Connecting to stream…</small></div>${gboxH}<div class="hearts"></div>`;
+ if(ph)V(`<div class="lvx">${stage}
+  <div class="lx-top"><div class="lx-pill"><a href="#/u/${esc(u.username)}">${av(u,34)}</a><span><b>${nm(u)}</b><small>💎 <i data-st="diamonds">${fmt(st.diamonds)}</i></small></span><button id="favb" class="fv ${r.following?"on":""}" onclick="favToggle('${esc(u.username)}')" title="Favorite">${r.following?"★":"+"}</button></div>
+   <span class="sp"></span><div class="lx-fans" id="topg" onclick="go('#/live/tools/gifters')">${fanAvs(r.top)}</div><span class="lx-cnt">👁 <i data-st="viewers">${fmt(st.viewers)}</i></span><button class="lx-x" onclick="go('#/live')" title="Exit">✕</button></div>
+  <div class="lx-stats"><span class="lvl">Lv ${u.level||1}</span><span>♥ <i data-st="hearts">${fmt(st.hearts)}</i></span><span>⭐ <i data-st="fans">${fmt(st.fans)}</i></span></div>
+  <div class="lx-chat" id="lchat"><p class="sys">Welcome to ${nm(u)}'s stream! Be kind. 💙</p></div>
+  <div class="lx-bar"><button class="lbtn" onclick="viewerMore()" title="More">☰</button><button class="lbtn hb" onclick="sock.emit('heart')" title="Like">♥</button><button class="lbtn" id="gbtn" onclick="guestReq()" title="Join as guest">👤+</button>
+   <input id="ci" placeholder="Say something…" maxlength="300" enterkeyhint="send" onkeydown="event.key=='Enter'&&sendChat()"><button class="lbtn" onclick="shareLive()" title="Share">✈</button><button class="lbtn gift gbtn" onclick="giftSheet()" title="Send a gift">🎁</button></div></div>`);
+ else V(`<div class="vw"><div class="vmain card"><div class="vhd"><a class="vu" href="#/u/${esc(u.username)}">${av(u,40)}<span><b>${nm(u)}</b>
+   <span class="vst"><span>💎 <b data-st="diamonds">${fmt(st.diamonds)}</b></span><span>⭐ <b data-st="fans">${fmt(st.fans)}</b></span><span>♥ <b data-st="hearts">${fmt(st.hearts)}</b></span><span>👁 <b data-st="viewers">${fmt(st.viewers)}</b></span></span></span></a>
+  <span class="sp"></span><button class="btn sm out" id="favb" onclick="favToggle('${esc(u.username)}')">${r.following?"★ Favorited":"☆ Favorite"}</button><button class="btn sm out" onclick="go('#/live')">Exit Stream</button></div>
+  <div class="vbody"><div class="vstage">${stage}<button class="vb rep" onclick="toast('Thanks — our team will review this stream')" title="Report">⚠</button><div class="topg" id="topg">${topHtml(r.top)}</div>
+   <div class="vleft"><button class="vb xp" onclick="xpInfo()" title="Your level"><i>${S.me.xp.n}</i><small>XP</small></button><button class="vb hb" onclick="sock.emit('heart')" title="Like">♥</button>
+    <button class="vb" id="gbtn" onclick="guestReq()" title="Join as guest">👤+</button><button class="vb vip" onclick="S.me.premium?(S.gtab='Exclusive',S.gpage=0,redrawG()):go('#/premium')" title="VIP">VIP</button></div></div>
+  <aside class="vside">${gpanel()}<div class="dchat"><div id="lchat" class="lchat d"><p class="sys">🛡 Let's keep Live fun! Nudity or obscene behavior results in account deletion.</p><p class="sys">Welcome to ${nm(u)}'s stream! 💙</p></div>
+   <div class="vbar"><input id="ci" placeholder="Say something…" maxlength="300" onkeydown="event.key=='Enter'&&sendChat()"><button class="ib" onclick="sendChat()">➤</button></div></div></aside></div></div>
   ${others.length?`<section class="card also"><h4>VIEWERS ALSO WATCH</h4><div class="trow">${others.slice(0,8).map(s=>tile(s,1)).join("")}</div></section>`:""}</div>`);
- S.guest=r.guest?.user||null;S.guestMine=false;S.guestPending=false;updGuestUI();swipe($(".vstage"))}
+ S.guest=r.guest?.user||null;S.guestMine=false;S.guestPending=false;updGuestUI();swipe($(".lvx")||$(".vstage"))}
+function viewerMore(){const v=S.view;sheet(`<div class="shd"><b>More</b><button class="x" onclick="closePops()">✕</button></div><div class="pm">
+ <a onclick="closePops();xpInfo()">⭐ My level (Lv ${S.me.xp?.n||1})</a><a onclick="closePops();go('#/live/tools/gifters')">🏆 Top gifters</a><a onclick="closePops();guestReq()">👤 ${S.guestMine?"Leave guest spot":"Request to join as guest"}</a>
+ <a onclick="closePops();${S.me.premium?"S.gtab='Exclusive';S.gpage=0;giftSheet()":"go('#/premium')"}">🚀 VIP gifts</a><a onclick="closePops();nextStream(1)">⌄ Next stream</a><a onclick="closePops();toast('Thanks — our team will review this stream')">⚠ Report stream</a></div>`)}
+
 function swipe(el){if(!el)return;let y0=null;el.addEventListener("touchstart",e=>y0=e.touches[0].clientY,{passive:true});el.addEventListener("touchend",e=>{if(y0==null)return;const d=y0-e.changedTouches[0].clientY;if(Math.abs(d)>70)nextStream(d>0?1:-1);y0=null})}
 function nextStream(dir){const l=S.streams,i=l.findIndex(s=>s.id==S.view?.id);if(l.length<2)return toast("No other streams live right now");const n=l[(i+dir+l.length)%l.length];go("#/live/view/"+n.id)}
 function sendChat(){const i=$("#ci");if(!i.value.trim())return;sock.emit("chat",{text:i.value});i.value=""}
-async function favToggle(n){const on=$("#favb").textContent.includes("Favorited");await api(`/api/users/${encodeURIComponent(n)}/follow`,{method:on?"DELETE":"POST"});
+async function favToggle(n){const b0=$("#favb");if(b0.classList.contains("fv")){const on=b0.classList.contains("on");await api(`/api/users/${encodeURIComponent(n)}/follow`,{method:on?"DELETE":"POST"});b0.classList.toggle("on",!on);b0.textContent=on?"+":"★";return toast(on?"Removed from favorites":"Added to favorites")}const on=b0.textContent.includes("Favorited");await api(`/api/users/${encodeURIComponent(n)}/follow`,{method:on?"DELETE":"POST"});
  const b=$("#favb");b.textContent=on?"☆ Favorite":"★ Favorited";b.className="btn sm "+(on?"pri":"out");toast(on?"Removed from favorites":"Added to favorites")}
 function xpInfo(){const x=S.me.xp;sheet(`<div class="shd"><b>Level ${x.n}</b><button class="x" onclick="closePops()">✕</button></div><div class="pad"><div class="bar blue"><i style="width:${x.pct}%"></i></div><p class="muted">${fmt(x.to_next)} XP to level ${x.n+1}. Earn 1 XP for every coin you spend on gifts. Higher levels unlock Exclusive gifts.</p></div>`,"center")}
 const locked=g=>g[5]!=null&&!(typeof g[5]=="number"&&(S.me.xp?.n||1)>=g[5])&&!(g[5]=="VIP"&&S.me.premium);
@@ -256,25 +281,37 @@ function noCoins(){sheet(`<div class="shd"><b>Not enough coins</b><button class=
 // ---------------- Go Live ----------------
 async function golive(){setNav("broadcast","Go Live");connect();
  if(S.live)return broadcaster();
- V(`<div class="gl card"><div class="glv"><video id="pv" autoplay muted playsinline></video><div class="glp" id="glp">📷<small>Allow camera & microphone</small></div><a class="glx" href="#/live">✕</a></div>
- <div class="glf"><h2>Go Live</h2><label>Title<input id="gt" maxlength="80" placeholder="What's your stream about?"></label><label>Tags<input id="gtg" maxlength="80" placeholder="#chat #music #dating"></label>
- <div class="tagchips">${["#chat","#music","#dating","#gaming","#dance","#talent","#irl"].map(t=>`<b onclick="const i=$('#gtg');i.value=(i.value+' ${t}').trim()">${t}</b>`).join("")}</div>
- <p class="safe">🛡 Nudity or obscene behavior results in account deletion. Streams may be recorded for safety review.</p>
- <button class="btn pri full big" id="glb" onclick="startLive()">GO LIVE!</button></div></div>`);
- try{S.stream=await navigator.mediaDevices.getUserMedia({video:{width:720,height:1280,facingMode:"user"},audio:true});$("#pv").srcObject=S.stream;$("#glp").remove()}catch(e){$("#glp").innerHTML="⚠️<small>Camera unavailable: "+esc(e.message)+"</small>"}}
+ V(`<div class="lvx gl2"><div class="glstage">${vids("pv",1)}<div class="glp" id="glp">📷<small>Allow camera & microphone</small></div></div>
+ <div class="lx-top"><a class="lx-x" href="#/live" title="Close">✕</a><span class="sp"></span><button class="lx-x" onclick="flipCam()" title="Flip camera">🔄</button></div>
+ <div class="glform"><input id="gt" maxlength="80" placeholder="Add a title to your stream…"><input id="gtg" maxlength="80" placeholder="#chat #music #dating">
+  <div class="tagchips">${["#chat","#music","#dating","#gaming","#dance","#talent","#irl"].map(t=>`<b onclick="const i=$('#gtg');i.value=(i.value+' ${t}').trim()">${t}</b>`).join("")}</div>
+  <p class="safe">🛡 Nudity or obscene behavior results in account deletion.</p><button class="golbtn" id="glb" onclick="startLive()">GO LIVE!</button></div></div>`);
+ try{S.stream=await getCam("user");S.face="user";attachV($("#pv"),S.stream,true);$("#glp").remove()}catch(e){$("#glp").innerHTML="⚠️<small>Camera unavailable: "+esc(e.message)+"</small>"}}
 async function startLive(){for(let i=0;i<25&&!S.stream&&$("#glp")&&!/unavailable/.test($("#glp").textContent);i++)await new Promise(r=>setTimeout(r,200));if(!S.stream)return toast("Camera required to go live");$("#glb").disabled=true;
  sock.emit("golive",{title:$("#gt").value||"Live now",tags:$("#gtg").value},r=>{S.live={id:r.id,title:$("#gt").value||"Live now",tags:$("#gtg").value,t0:Date.now()};broadcaster()})}
-function broadcaster(){const L=S.live;V(`<div class="vw bc"><div class="vmain card"><div class="vhd"><a class="vu">${av(S.me,44)}<span><b>${nm(S.me)} <i class="lbadge">LIVE</i></b><small>${esc(L.title)} ${esc(L.tags||"")}</small></span></a>
- <div class="vst"><span>💎 <b data-st="stream_diamonds">0</b></span><span>⭐ <b data-st="fans">0</b></span><span>👁 <b data-st="viewers">0</b></span><span>♥ <b data-st="hearts">0</b></span><span>⏱ <b id="ltm">0m 0s</b></span></div>
- <span class="sp"></span><button class="btn sm red" onclick="endLive()">End</button></div>
- <div class="vbody"><div class="vstage"><video id="bv" autoplay muted playsinline></video><div class="topg" id="topg">${topHtml([])}</div><div class="gbox2" id="gbox"><video id="gv" autoplay playsinline></video><small id="gname"></small><button class="gx" title="End guest" onclick="S.live?sock.emit('guest-end'):guestLeave()">✕</button></div>
-  <div class="vchat ov"><div id="lchat" class="lchat"><p class="sys">You're live! Viewers will appear here. 💙</p></div><div class="vbar"><input id="ci" placeholder="Chat with viewers…" onkeydown="event.key=='Enter'&&sendChat()"><button class="ib" onclick="sendChat()">➤</button></div></div></div>
- <aside class="vside"><div class="sg"><div class="sgh"><b>STREAM TOOLS</b></div><a class="tmi" onclick="flipCam()">🔄 Flip camera</a><a class="tmi" onclick="toggleMic(this)">🎤 Mute mic</a><a class="tmi" id="gkick" style="display:none" onclick="sock.emit('guest-end')">✕ Remove guest</a><a class="tmi" onclick="go('#/live/tools/bouncers')">🛡 Bouncers</a><a class="tmi" onclick="shareLive()">✈️ Share stream</a>
-  <div class="sgh"><b>GUEST REQUESTS</b></div><div id="greqs"></div><p class="safe">🛡 Nudity or obscene behavior results in account deletion.</p></div></aside></div></div></div>`);drawReqs();updGuestUI();
- $("#bv").srcObject=S.stream;clearInterval(S.ltimer);S.ltimer=setInterval(()=>{const e=$("#ltm");if(e)e.textContent=dur(Math.round((Date.now()-L.t0)/1000))},1000)}
-function toggleMic(b){const t=S.stream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;b.textContent=t.enabled?"🎤 Mute mic":"🔇 Unmute mic"}
-async function flipCam(){try{const cur=S.stream.getVideoTracks()[0].getSettings().facingMode;const ns=await navigator.mediaDevices.getUserMedia({video:{facingMode:cur=="user"?"environment":"user"}});const nt=ns.getVideoTracks()[0];
- Object.values(S.peers).forEach(p=>p.getSenders().find(s=>s.track?.kind=="video")?.replaceTrack(nt));S.stream.getVideoTracks()[0].stop();S.stream.removeTrack(S.stream.getVideoTracks()[0]);S.stream.addTrack(nt);$("#bv").srcObject=S.stream}catch(e){toast("Can't switch camera")}}
+function broadcaster(){const L=S.live,ph=isPhone(),stage=`${vids("bv",1)}${gboxH}<div class="hearts"></div>`;
+ const ctl=`<button class="lbtn" onclick="flipCam()" title="Flip camera">🔄</button><button class="lbtn" id="micb" onclick="toggleMic(this)" title="Mute">🎤</button>`;
+ if(ph)V(`<div class="lvx bc">${stage}
+  <div class="lx-top"><div class="lx-pill">${av(S.me,34)}<span><b>${nm(S.me)} <i class="lbadge">LIVE</i></b><small>💎 <i data-st="stream_diamonds">0</i> · ⏱ <i id="ltm">0m 0s</i></small></span></div>
+   <span class="sp"></span><div class="lx-fans" id="topg"></div><span class="lx-cnt">👁 <i data-st="viewers">0</i></span><button class="lx-x end" onclick="endLive()" title="End stream">End</button></div>
+  <div class="lx-stats"><span>♥ <i data-st="hearts">0</i></span><span>⭐ <i data-st="fans">0</i></span></div>
+  <div class="lx-chat" id="lchat"><p class="sys">You're live! Viewers will appear here. 💙</p></div>
+  <div class="lx-bar"><button class="lbtn" onclick="hostMore()" title="More">☰<i class="rq" id="rqn"></i></button>${ctl}<input id="ci" placeholder="Chat with viewers…" onkeydown="event.key=='Enter'&&sendChat()"><button class="lbtn" onclick="shareLive()" title="Share">✈</button></div>
+  <div id="greqs" hidden></div><a id="gkick" hidden></a></div>`);
+ else V(`<div class="vw bc"><div class="vmain card"><div class="vhd"><a class="vu">${av(S.me,40)}<span><b>${nm(S.me)} <i class="lbadge">LIVE</i></b><span class="vst"><span>💎 <b data-st="stream_diamonds">0</b></span><span>⭐ <b data-st="fans">0</b></span><span>♥ <b data-st="hearts">0</b></span><span>👁 <b data-st="viewers">0</b></span><span>⏱ <b id="ltm">0m 0s</b></span></span></span></a>
+ <span class="sp"></span><button class="btn sm red" onclick="endLive()">End Stream</button></div>
+ <div class="vbody"><div class="vstage">${stage}<div class="topg" id="topg">${topHtml([])}</div><div class="vleft">${ctl.replace(/class="lbtn"/g,'class="vb"')}<button class="vb" onclick="shareLive()" title="Share">✈</button></div></div>
+ <aside class="vside"><div class="sg"><div class="sgh"><b>STREAM TOOLS</b></div><a class="tmi" id="gkick" style="display:none" onclick="sock.emit('guest-end')">✕ Remove guest</a><a class="tmi" onclick="go('#/live/tools/bouncers')">🛡 Bouncers</a>
+  <div class="sgh"><b>GUEST REQUESTS</b></div><div id="greqs"></div></div><div class="dchat"><div id="lchat" class="lchat d"><p class="sys">You're live! Viewers will appear here. 💙</p></div>
+  <div class="vbar"><input id="ci" placeholder="Chat with viewers…" onkeydown="event.key=='Enter'&&sendChat()"><button class="ib" onclick="sendChat()">➤</button></div></div></aside></div></div></div>`);
+ drawReqs();updGuestUI();attachV($("#bv"),S.stream,S.face!="environment");clearInterval(S.ltimer);S.ltimer=setInterval(()=>{const e=$("#ltm");if(e)e.textContent=dur(Math.round((Date.now()-L.t0)/1000))},1000)}
+function hostMore(){sheet(`<div class="shd"><b>Stream tools</b><button class="x" onclick="closePops()">✕</button></div><div class="pad"><h4>GUEST REQUESTS</h4><div id="greqs2"></div></div><div class="pm">
+ ${S.guest?`<a onclick="closePops();sock.emit('guest-end')">✕ Remove guest</a>`:""}<a onclick="closePops();shareLive()">✈ Share stream</a><a onclick="closePops();go('#/live/tools/bouncers')">🛡 Bouncers</a></div>`);drawReqs()}
+function toggleMic(b){const t=S.stream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;b.textContent=t.enabled?"🎤":"🔇";b.classList.toggle("off",!t.enabled);toast(t.enabled?"Mic on":"Mic muted")}
+async function flipCam(){try{const face=S.face=="environment"?"user":"environment";const ns=await getCam(face,false);const nt=ns.getVideoTracks()[0];
+ Object.values(S.peers).forEach(p=>p.getSenders().find(s=>s.track?.kind=="video")?.replaceTrack(nt));const old=S.stream.getVideoTracks()[0];old.stop();S.stream.removeTrack(old);S.stream.addTrack(nt);S.face=face;
+ const v=$("#bv")||$("#pv");attachV(v,S.stream,face=="user")}catch(e){toast("Can't switch camera")}}
+
 function endLive(silent){return new Promise(ok=>{if(!S.live)return ok();sock.emit("endlive",{},sum=>{clearInterval(S.ltimer);S.greqs=[];S.stream?.getTracks().forEach(t=>t.stop());S.stream=null;closePeers();const L=S.live;S.live=null;
  if(!silent)V(`<div class="card sum"><h2>Stream Ended</h2>${av(S.me,84)}<b>${nm(S.me)}</b><small class="muted">${esc(L.title)}</small>
   <div class="sumg"><div><b>${dur(sum.duration||0)}</b><small>Duration</small></div><div><b>${fmt(sum.peak)}</b><small>Peak viewers</small></div><div><b>${fmt(sum.hearts)}</b><small>Hearts</small></div><div><b>💎 ${fmt(sum.diamonds)}</b><small>Diamonds earned</small></div><div><b>+${fmt(sum.new_fans)}</b><small>New fans</small></div></div>
