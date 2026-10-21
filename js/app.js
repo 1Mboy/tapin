@@ -40,12 +40,12 @@ const TITLES={live:"Live",discover:"Discover",match:"Match",chats:"Chats",friend
 // ---------------- shell ----------------
 function shell(){if($("#shell"))return;
  document.body.insertAdjacentHTML("afterbegin",`<div id="shell">
- <aside class="side"><a class="slogo" href="#/live" title="${APP_NAME}"><img src="img/logo_header.png" alt="${APP_NAME}"></a>
+ <aside class="side"><a class="slogo" href="#/live" title="${APP_NAME}"><img src="img/logo_header.png?v=2" alt="${APP_NAME}"></a>
   <nav class="snav">${NAV.map(([k,t,h])=>`<a class="si" data-k="${k}" ${h?`href="${h}"`:`onclick="morePop(event)"`}><span class="sic">${ICON[k]}${k=="chats"?'<i class="dot" data-badge="dm"></i>':""}${k=="friends"?'<i class="dot" data-badge="fr"></i>':""}</span><small>${t}</small></a>`).join("")}</nav>
   <div class="sbot"><a class="si" onclick="actPop(event)"><span class="sic">${ICON.bell}<i class="dot" data-badge="act"></i></span><small>Activity</small></a>
    <a class="si" data-k="gold" href="#/gold"><span class="sic gold">${ICON.gold}</span><small>Gold</small></a>
    <a class="si" data-k="profile" href="#/profile"><span class="sic" id="sideav"></span><small>Profile</small></a></div></aside>
- <div class="main"><header class="top"><a class="mlogo" href="#/live"><img src="img/logo_header.png" alt="${APP_NAME}"></a><h1 id="ttl">Live</h1><span class="sp"></span>
+ <div class="main"><header class="top"><a class="mlogo" href="#/live"><img src="img/logo_header.png?v=2" alt="${APP_NAME}"></a><h1 id="ttl">Live</h1><span class="sp"></span>
   <button class="tb gold" onclick="go('#/gold')">🪙 <span>Gold</span></button><button class="tb prem" onclick="go('#/premium')">🚀 <span>Premium</span></button>
   <button class="tbi mob" onclick="actPop(event)">🔔<i class="dot" data-badge="act"></i></button><a class="tbi mob" href="#/profile" id="topav"></a></header>
   <main id="view"></main></div>
@@ -437,7 +437,7 @@ async function buyPremium(){if(!S.cfg.payments)return toast("Payments not connec
 // ---------------- Gate (signup/login) ----------------
 function gate(){$("#shell")?.remove();const su=(S.auth||"signup")=="signup";document.body.classList.remove("immersive");
  let g=$("#gate");if(!g){g=document.createElement("div");g.id="gate";document.body.append(g)}
- g.innerHTML=`<div class="gbox card"><img class="glogo" src="img/logo_header.png" alt="${APP_NAME}"><h2>${su?"Create your account":"Welcome back"}</h2><p class="muted">Live streams, chat & dating.</p>
+ g.innerHTML=`<div class="gbox card"><img class="glogo" src="img/logo_header.png?v=2" alt="${APP_NAME}"><h2>${su?"Create your account":"Welcome back"}</h2><p class="muted">Live streams, chat & dating.</p>
  ${su?`<input id="em" type="email" placeholder="Email"><input id="un" placeholder="Username"><input id="pw" type="password" placeholder="Password (8+ characters)"><label class="lb">Birthday<input id="dob" type="date"></label>
   <div class="seg" id="gsel">${[["m","Man"],["f","Woman"],["","Other"]].map(([v,t])=>`<b data-v="${v}" onclick="$$('#gsel b').forEach(x=>x.classList.remove('on'));this.classList.add('on')">${t}</b>`).join("")}</div>
   <label class="chk"><input type="checkbox" id="tos"> I'm 18+ and agree to the Terms & Privacy Policy</label>`:`<input id="lg" placeholder="Email or username"><input id="pw" type="password" placeholder="Password">`}

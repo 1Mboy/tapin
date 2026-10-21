@@ -289,7 +289,7 @@ app.use('/uploads',express.static(UPLOAD_DIR,{maxAge:'7d',setHeaders:r=>r.set('X
 app.use('/vendor/leaflet',express.static(path.join(__dirname,'node_modules/leaflet/dist'),{maxAge:'30d'}));
 for(const d of['css','js','img'])app.use('/'+d,express.static(path.join(__dirname,d)));
 app.get('/',(req,res)=>res.sendFile(path.join(__dirname,'index.html')));
-app.get('/favicon.ico',(req,res)=>res.sendFile(path.join(__dirname,'img/favicon.ico')));
+app.get("/favicon.ico",(req,res)=>res.set("Cache-Control","public, max-age=3600").sendFile(path.join(__dirname,'img/favicon.ico')));
 app.get('/manifest.webmanifest',(req,res)=>res.type('application/manifest+json').sendFile(path.join(__dirname,'manifest.webmanifest')));
 
 // --- Realtime ---
