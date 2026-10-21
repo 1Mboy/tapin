@@ -465,3 +465,19 @@ video.vbg{position:absolute;inset:-6%;width:112%;height:112%;object-fit:cover;fi
 .pvbar #gt{flex:1;min-width:0;height:44px;border-radius:22px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.15);color:#fff;padding:0 14px;font-size:14px}
 .pvbar .startbtn{width:auto;flex:none;height:44px;padding:0 20px;border-radius:22px;background:linear-gradient(180deg,#fff,#e9edf3);color:#e01e2b;font-size:16px;box-shadow:0 3px 12px rgba(0,0,0,.35)}
 .facetoast{pointer-events:none}
+/* bar-fix: host live bar = 7 equal full-width slots, icon centered in each (no reliance on space-between/gap; scoped so the
+   mobile tab-bar .ti rule can't leak in). Sits above the home indicator via safe-area padding. */
+.lvx .tbar{width:100%;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);justify-content:space-evenly;justify-items:center;align-items:center;gap:0;padding:8px 0 calc(10px + env(safe-area-inset-bottom))}
+.lvx .tbar>.ti{flex:none;margin:0;-webkit-appearance:none;appearance:none}
+.lvx .vbar2{width:100%;justify-content:space-between}.lvx .vbar2>*{margin:0}.lvx .vbar2>.ti{-webkit-appearance:none;appearance:none}
+/* VS on the host bar: same 44px footprint/weight as the other icons — plain outline glyph, subtle blue V / gold S accent (no badge) */
+.lvx .tbar>.ti.vsb{width:44px;height:44px;background:none!important;border:0!important;box-shadow:none!important;text-shadow:none;color:#fff!important;border-radius:0}
+.lvx .tbar>.ti.vsb .ico{width:26px;height:22px}.lvx .tbar>.ti.vsb path:first-child{stroke:#7fb9ff}.lvx .tbar>.ti.vsb path:last-child{stroke:#f5d36b}
+.lvx .tbar>.ti.vsb.on path{stroke:var(--gold)}
+/* bar-fix: main mobile tab bar. The live-tools .ti{width:44px;height:44px;display:grid;flex:none;color:#fff;filter} rule (line ~402) comes
+   after the mobile .ti{flex:1} rule and shares the class, so tabs shrank to 44px and bunched left. Re-assert with higher specificity. */
+@media(max-width:820px){
+ .tabbar{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));width:100%;left:0;right:0;height:auto;min-height:64px;padding:0 0 env(safe-area-inset-bottom);box-sizing:border-box}
+ .tabbar>.ti{width:auto;height:64px;min-width:0;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;text-align:center;color:var(--mu);filter:none;padding:0;font-size:10px;font-weight:700}
+ .tabbar>.ti.on{color:var(--gold)}
+}

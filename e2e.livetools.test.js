@@ -19,6 +19,8 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  const H=await mk(),V=await mk(),F=await mk();const hu='tmp_lt_h'+T,vu='tmp_lt_v'+T,fu='tmp_lt_f'+T;
  await signup(H,hu,'f','Hana Host');await signup(V,vu,'m','Vic Viewer');await signup(F,fu,'m','Finn Follower');ok(true,'3 throwaway users');
  await F.evaluate(n=>api(`/api/users/${n}/follow`,{method:'POST'}),hu);ok(true,'Finn follows host');
+ await F.goto(URL+'#/discover');await F.waitForSelector('.tabbar .ti');const tg=await F.$eval('.tabbar',b=>{const R=b.getBoundingClientRect();return{l:R.left,w:R.width,W:innerWidth,pb:getComputedStyle(b).paddingBottom,c:[...b.children].map(x=>{const r=x.getBoundingClientRect();return r.left+r.width/2})}});const ts=tg.W/tg.c.length;
+ ok(tg.c.length==6&&tg.l==0&&Math.abs(tg.w-tg.W)<1&&tg.c.every((c,i)=>Math.abs(c-ts*(i+.5))<3),'main tab bar: 6 tabs evenly spaced across full width: '+tg.c.map(x=>x|0));
  // ---- pre-live: GO LIVE → rules sheet → preview (title + START) → face toast
  await H.goto(URL+'#/live');await H.waitForSelector('.golivefab');await H.tap('.golivefab');await H.waitForSelector('.rsheet:has-text("Let\'s get livestreaming!")');const rt=await H.$eval('.rsheet',e=>e.innerText);
  ok(['Show off your talents','Nudity or pornography','Hate speech or bullying','Illegal activity','Minors','I agree to the Terms of Service','GOT IT'].every(t=>rt.includes(t))&&await H.$('.rsheet .rx'),'rules sheet text + X');await shot(H,'08a_prelive_rules');
@@ -34,7 +36,10 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  const sy=await H.$eval('#lchat',e=>e.innerText);ok(/Let's keep Live fun!/.test(sy)&&/Modbot is watching/.test(sy)&&/interact with your viewers/.test(sy),'3 system messages');
  const geo=await H.$$eval('#tbar > button',b=>b.map(x=>{const r=x.getBoundingClientRect(),s=getComputedStyle(x);return{c:r.left+r.width/2,w:r.width,bg:s.backgroundColor,y:r.top}}));
  ok(geo.every(g=>g.bg=='rgba(0, 0, 0, 0)'),'icons have no background');
+ const vsw=await H.$eval('#vsb',e=>{const r=e.getBoundingClientRect(),i=e.querySelector('svg').getBoundingClientRect(),o=document.querySelector('#tipb svg').getBoundingClientRect();return{w:r.width,h:r.height,iw:i.width,ow:o.width}});const others=geo.filter((g,i)=>i!=1).map(g=>g.w);ok(others.every(w=>Math.abs(w-vsw.w)<=2)&&Math.abs(vsw.h-vsw.w)<=2&&Math.abs(vsw.iw-vsw.ow)<=2,'VS same footprint as other icons ('+vsw.w+'x'+vsw.h+', glyph '+(vsw.iw|0)+' vs '+(vsw.ow|0)+')');
  const gaps=geo.slice(1).map((g,i)=>g.c-geo[i].c);ok(Math.max(...gaps)-Math.min(...gaps)<14,'evenly spaced '+gaps.map(x=>x|0));
+ const W=await H.evaluate(()=>innerWidth),slot=W/geo.length;ok(geo.every((g,i)=>Math.abs(g.c-slot*(i+.5))<3),'icon centers evenly distributed across full width ('+W+'px, slot '+(slot|0)+'): '+geo.map(g=>g.c|0));
+ const tb=await H.$eval('#tbar',e=>{const r=e.getBoundingClientRect();return{l:r.left,w:r.width,b:r.bottom,h:innerHeight,pb:getComputedStyle(e).paddingBottom}});ok(tb.l==0&&Math.abs(tb.w-W)<1&&Math.abs(tb.b-tb.h)<1&&parseFloat(tb.pb)>=10,'host bar full width, pinned bottom with safe-area padding');
  ok(await H.$eval('#cinb',e=>e.hidden),'chat input hidden by default');
  const clutter=await H.evaluate(()=>['#ltm','.lbadge','#micb','.lx-x.end'].filter(s=>document.querySelector('.lvx '+s)));ok(!clutter.length,'no extra clutter (timer/LIVE badge/mic/End pill)');
  const x=await H.$eval('#endx',e=>({bg:getComputedStyle(e).backgroundColor,r:e.getBoundingClientRect()}));ok(x.bg=='rgba(0, 0, 0, 0)'&&x.r.left>300&&x.r.top<80,'top-right X with no background');
