@@ -48,7 +48,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await A.goto(URL+'#/discover/near');await A.waitForSelector('.dgrid');await A.click('.fchips b');await A.waitForSelector('.dseg');await A.click('.dseg b:has-text("25")');await shot(A,'filters_distance');await A.click('.sheet .btn.pri.full');
  await A.waitForSelector('.fchips b:has-text("Within 25")');ok(!!await A.$(`.ptile[href="#/u/${ub}"]`),'B shown within 25 mi (real distance)');await shot(A,'discover_distance');
  await A.click('.mtog');await A.waitForSelector('.mpin',{timeout:20000});await A.waitForTimeout(2500);await shot(A,'map_discover');
- const mp=await A.evaluate(u=>api('/api/map?dist=any').then(d=>d.pins.find(p=>p.username==u)),ub);ok(mp&&!(mp.lat===30.28&&mp.lng===-97.74)&&Math.abs(mp.lat-30.2849)<0.03&&Math.abs(mp.lng+97.7341)<0.03,`B pin is fuzzed (${mp&&(Math.abs(mp.lat-30.2849)*111).toFixed(1)} km lat offset), not exact`);
+ const mp=await A.evaluate(u=>api('/api/map?dist=any').then(d=>d.pins.find(p=>p.username==u)),ub);ok(mp&&!(mp.lat===30.28&&mp.lng===-97.74)&&(()=>{const km=Math.hypot((mp.lat-30.2849)*111,(mp.lng+97.7341)*111*Math.cos(30.28*Math.PI/180));console.log('pin offset km',km.toFixed(2));return km>0.3&&km<3.2})(),'B pin is fuzzed ~1-2 km, not exact');
  ok(!(await A.evaluate(()=>api('/api/map?dist=any').then(d=>JSON.stringify(d)))).includes('30.2849'),'exact coordinates never returned');
  await A.click('.mpin');await A.waitForSelector('.up');ok(true,'tapping a pin opens the profile');
  // match + message
@@ -61,8 +61,8 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await A.goto(URL+'#/chats/'+ub);await A.waitForSelector('.bub:has-text("hello from B")');await A.fill('#dmi','hi B!');await A.press('#dmi','Enter');await B.waitForSelector('.bub:has-text("hi B!")');ok(true,'DMs both ways');
  // premium
  await A.goto(URL+'#/premium');await A.waitForSelector('.paybtn');await shot(A,'premium_buy');
- if(process.env.STRIPE){await A.click('.paybtn');await A.waitForURL(/checkout\.stripe\.com/,{timeout:30000});ok(await A.isVisible('text=Test mode').catch(()=>false)||true,'on Stripe checkout');
-  await A.waitForSelector('#cardNumber',{timeout:30000});await A.fill('#email',ua+'@example.com').catch(()=>{});await A.fill('#cardNumber','4242424242424242');await A.fill('#cardExpiry','12/34');await A.fill('#cardCvc','123');
+ if(process.env.STRIPE){await A.click('.paybtn');await A.waitForURL(/checkout\.stripe\.com/,{timeout:30000});await A.waitForTimeout(3000);
+  ok(await A.isVisible('text=Sandbox').catch(()=>false),'Stripe checkout is in Sandbox/test mode');await A.fill('#email',ua+'@example.com');await A.click('text=Card').catch(()=>{});await A.waitForSelector('#cardNumber',{timeout:30000});await A.fill('#cardNumber','4242424242424242');await A.fill('#cardExpiry','12/34');await A.fill('#cardCvc','123');
   await A.fill('#billingName','Test User').catch(()=>{});await A.fill('#billingPostalCode','78701').catch(()=>{});const l=await A.$('#enableStripePass');if(l&&await l.isChecked())await l.uncheck({force:true}).catch(()=>{});
   await A.click('.SubmitButton');await A.waitForURL(u=>u.toString().startsWith(URL),{timeout:60000});
   await A.waitForFunction(()=>api('/api/me').then(m=>m.premium),null,{timeout:30000,polling:2000});ok(true,'Premium activated via Stripe TEST checkout + webhook');

@@ -7,9 +7,9 @@ const card=(u,viewer)=>{const L=live();return{...pub(u),live:L.has(u.id),stream_
 const lim=limiter(120,60e3);
 const unreadAct=uid=>db.prepare('SELECT COUNT(*) n FROM notifications WHERE user_id=? AND read_at IS NULL').get(uid).n;
 
-// ---- Map pins: only users who shared location; stored on a ~2 km grid plus a stable per-user offset (≤ ~1 km), never exact ----
+// ---- Map pins: only users who shared location; stored on a ~2 km grid, shown 1–1.8 km away from that point in a stable per-user direction, never exact ----
 const jit=(id,k)=>{const h=require('crypto').createHash('sha256').update(String(id)+':'+k+':tapin-map').digest();return (h.readUInt16BE(0)/65535-.5)*0.018};
-const pin=u=>({lat:+(u.lat+jit(u.id,'a')).toFixed(3),lng:+(u.lng+jit(u.id,'b')).toFixed(3)});
+const pin=u=>{const ang=(jit(u.id,'a')/0.018+.5)*2*Math.PI,km=1+(jit(u.id,'b')/0.018+.5)*0.8;return{lat:+(u.lat+km/111*Math.cos(ang)).toFixed(3),lng:+(u.lng+km/(111*Math.cos(u.lat*Math.PI/180))*Math.sin(ang)).toFixed(3)}};
 app.get('/api/map',auth,(req,res)=>{const me_=req.user,q=req.query,L=live();
   const rows=db.prepare(`SELECT * FROM users u WHERE u.lat IS NOT NULL AND u.id<>? AND u.id NOT IN(SELECT blocked FROM blocks WHERE blocker=?) AND u.id NOT IN(SELECT blocker FROM blocks WHERE blocked=?)
     AND (COALESCE(json_extract(u.settings,'$.dating_mode'),1)=1 OR u.id IN(${[...L.keys()].map(Number).join(',')||0})) AND (?='' OR u.gender=?) LIMIT 500`)
