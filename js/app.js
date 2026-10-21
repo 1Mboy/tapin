@@ -305,7 +305,8 @@ async function getCam(face,audio=true){let st;try{st=await navigator.mediaDevice
  await noZoom(st.getVideoTracks()[0]);return st}
 // Cover only when the video and its box have nearly the same shape; otherwise show the whole frame over a blurred copy.
 function fitVideo(v){if(!v||!v.videoWidth)return;const box=v.parentElement,cw=box.clientWidth,ch=box.clientHeight;if(!cw||!ch)return;const va=v.videoWidth/v.videoHeight,ca=cw/ch,r=Math.max(va,ca)/Math.min(va,ca);
- const contain=r>1.15;box.classList.toggle("fitc",contain);v.style.objectFit=contain?"contain":"cover";box.dataset.fit=contain?"contain":"cover"}
+ // Live-room tiles (#stg) always cover edge-to-edge, Tagged-style; letterbox only elsewhere (e.g. desktop previews).
+ const contain=!box.closest(".stg")&&r>1.15;box.classList.toggle("fitc",contain);v.style.objectFit=contain?"contain":"cover";box.dataset.fit=contain?"contain":"cover"}
 function attachV(v,stream,mirror){if(!v)return;v.srcObject=stream;const bg=v.parentElement.querySelector(":scope>.vbg");if(bg){bg.srcObject=stream;bg.muted=true;bg.play?.().catch(()=>{})}
  v.parentElement.classList.toggle("mirror",!!mirror);v.classList.add("on");const f=()=>fitVideo(v);v.onloadedmetadata=f;v.onresize=f;setTimeout(f,300);v.play?.().catch(()=>{v.muted=true;v.play().catch(()=>{});if(v.dataset.remote)unmuteBtn(v)})}
 // iPhone Safari blocks autoplay with sound: start muted, then one tap anywhere (or the button) turns sound on.
