@@ -43,7 +43,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await A.waitForSelector('#stg[data-n="2"]');await A.waitForFunction(()=>document.querySelector('#stg .tl[data-sid] video.vfg').videoWidth>0,null,{timeout:15000});ok(true,'guest sees own camera preview');await shot(A,'cohost_guest_view');await shot(B,'cohost_host_view');
  const ice=await A.evaluate(()=>api('/api/ice').then(r=>r.iceServers.some(s=>JSON.stringify(s.urls).includes('turn'))));log('TURN servers offered: '+ice);
  await B.click('#stg .tl[data-sid] .gx');await A.waitForFunction(()=>document.querySelector('#stg').dataset.n=='1');ok(true,'host removes guest');
- await B.click('button:has-text("End")');await B.waitForSelector('.sum');log('stream ended');
+ await B.evaluate(()=>endAsk());await B.click('#endok');await B.waitForSelector('.sum');log('stream ended');
  // discover with distance filter
  await A.goto(URL+'#/discover/near');await A.waitForSelector('.dgrid');await A.click('.fchips b');await A.waitForSelector('.dseg');await A.click('.dseg b:has-text("25")');await shot(A,'filters_distance');await A.click('.sheet .btn.pri.full');
  await A.waitForSelector('.fchips b:has-text("Within 25")');ok(!!await A.$(`.ptile[href="#/u/${ub}"]`),'B shown within 25 mi (real distance)');await shot(A,'discover_distance');
@@ -60,7 +60,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await B.click('.mpop button:has-text("Send a message")');await B.waitForSelector('#dmi');await B.fill('#dmi','hello from B');await B.press('#dmi','Enter');
  await A.goto(URL+'#/chats/'+ub);await A.waitForSelector('.bub:has-text("hello from B")');await A.fill('#dmi','hi B!');await A.press('#dmi','Enter');await B.waitForSelector('.bub:has-text("hi B!")');ok(true,'DMs both ways');
  // premium
- await A.goto(URL+'#/premium');await A.waitForSelector('.paybtn');await shot(A,'premium_buy');
+ await A.goto(URL+'#/premium');await A.waitForSelector('.card.prem');await shot(A,'premium_buy');
  if(process.env.STRIPE){await A.click('.paybtn');await A.waitForURL(/checkout\.stripe\.com/,{timeout:30000});await A.waitForTimeout(3000);
   ok(await A.isVisible('text=Sandbox').catch(()=>false),'Stripe checkout is in Sandbox/test mode');await A.fill('#email',ua+'@example.com');await A.evaluate(()=>document.querySelector('[data-testid=card-accordion-item-button]')?.click());await A.waitForSelector('#cardNumber',{timeout:30000});await A.fill('#cardNumber','4242424242424242');await A.fill('#cardExpiry','12/34');await A.fill('#cardCvc','123');
   await A.fill('#billingName','Test User').catch(()=>{});await A.fill('#billingPostalCode','78701').catch(()=>{});const l=await A.$('#enableStripePass');if(l&&await l.isChecked())await l.uncheck({force:true}).catch(()=>{});

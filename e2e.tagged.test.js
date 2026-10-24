@@ -47,7 +47,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await A.goto(URL+'#/discover/near');await A.waitForSelector('.dgrid');await shot(A,'discover');
  await A.click('.dtabs .ib');await A.waitForSelector('.sheet .fl');await shot(A,'filters');await A.click('.sheet .x');
  await A.goto(URL+'#/u/'+ub);await A.waitForSelector('.up');await shot(A,'user_profile');
- await A.click('button:has-text("Add Friend")');await A.waitForSelector('button:has-text("Request Sent")');await A.click('button:has-text("Send Luv")');await A.waitForTimeout(400);
+ await A.click('button:has-text("Add Friend")');await A.waitForSelector('button:has-text("Request Sent")');await A.click('button:has-text("Send Luv")');await A.click('#luvgo');await A.waitForTimeout(400);
  await B.goto(URL+'#/discover/views');await B.waitForSelector('.ptile');ok(true,'profile view tracked');await shot(B,'discover_views');
  // match both ways
  const voteTo=async(p,target)=>{await p.goto(URL+'#/match');for(let i=0;i<80;i++){await p.waitForSelector('#mcard, .mw .empty');if(!await p.$('#mcard'))return false;
@@ -62,7 +62,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await B.goto(URL+'#/friends/requests');await B.waitForSelector('.pli');await shot(B,'friends_requests');await B.click('button:has-text("Accept")');await B.waitForTimeout(500);
  await B.goto(URL+'#/friends/friends');await B.waitForSelector('.pli');ok(true,'friendship accepted');await shot(B,'friends');
  // activity + more
- await B.goto(URL+'#/live');await B.waitForSelector('.lv');await B.click('.top .tbi');await B.waitForSelector('.act .ai');await shot(B,'activity');await B.mouse.click(5,300);
+ await B.goto(URL+'#/live');await B.waitForSelector('.lv');await B.click('.top .tbi[onclick^="actPop"]');await B.waitForSelector('.act .ai');await shot(B,'activity');await B.mouse.click(5,300);
  await B.click('.tabbar .ti:has-text("More")');await B.waitForSelector('.pm');await shot(B,'more_menu');await B.mouse.click(5,300);
  // profile/settings etc.
  await A.goto(URL+'#/profile');await A.waitForSelector('.pcard');await shot(A,'profile');await A.evaluate(()=>scrollTo(0,9999));await shot(A,'profile_settings');
