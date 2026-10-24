@@ -23,7 +23,7 @@ const BASE_URL=ORIGINS[0]||process.env.PUBLIC_URL||`http://${HOST}:${PORT}`;
 
 // --- Pricing constants are read from the front end so they can never drift ---
 const appjs=fs.readFileSync(path.join(__dirname,'js/app.js'),'utf8');
-const GIFTS=JSON.parse(appjs.match(/const GIFTS=(\[.*?\]\]);/s)[1]);
+const GIFTS=JSON.parse(fs.readFileSync(path.join(__dirname,'gifts.json'),'utf8')); // shared with the client via /js/gifts.js
 const COIN_PACKAGES=JSON.parse(appjs.match(/const COIN_PACKAGES=(\[.*?\]);/)[1].replace(/(\w+):/g,'"$1":'));
 const num=n=>+appjs.match(new RegExp(`const ${n}=([\\d.]+)`))[1];
 const DIAMONDS_PER_USD=num('DIAMONDS_PER_USD'),CASHOUT_MIN=num('CASHOUT_MIN_DIAMONDS'),SHARE=num('STREAMER_SHARE'),PAYOUT_FEE=num('PAYOUT_FEE_USD');
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS purchases(id INTEGER PRIMARY KEY,user_id INTEGER,stri
 CREATE TABLE IF NOT EXISTS payouts(id INTEGER PRIMARY KEY,user_id INTEGER,diamonds INTEGER,usd REAL,status TEXT DEFAULT 'pending',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
 // ---- Schema migrations (backup first when an existing DB is upgraded) ----
-const SCHEMA_VERSION=6;
+const SCHEMA_VERSION=7; // v7: full batch (looking_for, pet lock/cash runs, luv amounts; new tables in batch_api.js)
 {const cur=db.pragma('user_version',{simple:true});
  if(cur<SCHEMA_VERSION&&db.prepare('SELECT COUNT(*) n FROM users').get().n>0){
    db.pragma('wal_checkpoint(TRUNCATE)');const f=path.join(DATA_DIR,`backup-pre-migration-v${cur}-to-v${SCHEMA_VERSION}-${new Date().toISOString().replace(/[:.]/g,'-')}.db`);
@@ -84,6 +84,7 @@ addCol('payouts','paypal',"TEXT DEFAULT ''");addCol('payouts','gross_usd','REAL'
 addCol('dms','kind',"TEXT NOT NULL DEFAULT 'text'");addCol('dms','media','TEXT');addCol('dms','gift_k','INTEGER');
 addCol('users','verified','INTEGER NOT NULL DEFAULT 0');addCol('users','onboarded','INTEGER NOT NULL DEFAULT 1');addCol('users','interests',"TEXT DEFAULT '[]'");
 addCol('users','boost_until','TEXT');addCol('users','spotlight_until','TEXT');addCol('users','xp2_until','TEXT');
+addCol('users','looking_for',"TEXT DEFAULT ''");addCol('users','pet_lock_until','TEXT');addCol('users','pet_run_at','TEXT');addCol('luv','amount','INTEGER NOT NULL DEFAULT 1');
 db.pragma(`user_version=${SCHEMA_VERSION}`);
 db.prepare("UPDATE streams SET ended_at=CURRENT_TIMESTAMP WHERE ended_at IS NULL").run(); // nothing is live after restart
 
@@ -104,7 +105,7 @@ const ADMIN_ID=13; // Michael (Moneymike). Admin is checked on the server only b
 const pub=u=>u&&({id:u.id,username:u.username,display_name:u.display_name||u.username,bio:u.bio||'',avatar:u.avatar,city:u.city||'',online:online.has(u.id),
  gender:u.gender||'',age:ageOf(u.dob),level:levelOf(u.xp||0).n,premium:isPremium(u),new_user:!!u.created_at&&Date.now()-Date.parse(String(u.created_at).replace(' ','T')+'Z')<7*864e5,...(u.id===ADMIN_ID||u.verified?{verified:true}:{}),frame:(i=>i>=1?RANKS[i][0].toLowerCase():null)(rankIdx(received(u.id))),
  followers:db.prepare('SELECT COUNT(*) n FROM follows WHERE followee=?').get(u.id).n,vs_wins:db.prepare('SELECT COUNT(*) n FROM battles WHERE winner=?').get(u.id).n,
- following:db.prepare('SELECT COUNT(*) n FROM follows WHERE follower=?').get(u.id).n});
+ following:db.prepare('SELECT COUNT(*) n FROM follows WHERE follower=?').get(u.id).n,looking_for:u.looking_for||''});
 const me=u=>u&&({...pub(u),email:u.email,coins:u.coins,diamonds:u.diamonds,xp:levelOf(u.xp||0),settings:settingsOf(u),dob:u.dob,pet_cash:u.pet_cash,
  received:received(u.id),rank:rankOf(received(u.id)),created_at:u.created_at,premium_until:isPremium(u)?u.premium_until:null,has_location:u.lat!=null,onboarded:!!u.onboarded,interests:(()=>{try{return JSON.parse(u.interests||'[]')}catch(e){return[]}})(),seats:seatsFor(u.id),...(u.id===ADMIN_ID?{admin:true}:{})});
 // ---- Distance (coarse location, ~11 km grid) ----
@@ -132,8 +133,8 @@ function notify(uid,type,actor,text,link){if(!uid||uid===actor)return;db.prepare
 const app=express();if(PROD||process.env.TRUST_PROXY)app.set('trust proxy',1);app.disable('x-powered-by');
 const PP_SRC=['https://www.paypal.com','https://*.paypal.com','https://*.paypalobjects.com','https://*.venmo.com'];
 app.use(helmet({contentSecurityPolicy:{useDefaults:true,directives:{
-  'script-src':["'self'","'unsafe-inline'","'wasm-unsafe-eval'",'https://cdn.jsdelivr.net',...PP_SRC],'frame-src':["'self'",...PP_SRC],'script-src-attr':["'unsafe-inline'"],'style-src':["'self'","'unsafe-inline'"],
-  'img-src':["'self'",'data:','blob:','https://tile.openstreetmap.org',...PP_SRC],'media-src':["'self'",'blob:','mediastream:'],'connect-src':["'self'",'ws:','wss:','https://cdn.jsdelivr.net','https://storage.googleapis.com',...PP_SRC],
+  'script-src':["'self'","'unsafe-inline'","'wasm-unsafe-eval'",'https://cdn.jsdelivr.net','https://accounts.google.com',...PP_SRC],'frame-src':["'self'",'https://accounts.google.com',...PP_SRC],'script-src-attr':["'unsafe-inline'"],'style-src':["'self'","'unsafe-inline'",'https://accounts.google.com'],
+  'img-src':["'self'",'data:','blob:','https://tile.openstreetmap.org',...PP_SRC],'media-src':["'self'",'blob:','mediastream:'],'connect-src':["'self'",'https://accounts.google.com','ws:','wss:','https://cdn.jsdelivr.net','https://storage.googleapis.com',...PP_SRC],
   'form-action':["'self'",'https://checkout.stripe.com'],'upgrade-insecure-requests':null}},crossOriginEmbedderPolicy:false,crossOriginOpenerPolicy:{policy:'same-origin-allow-popups'}}));
 const originOk=o=>!o||!ORIGINS.length&&!PROD||ORIGINS.includes(o)||(!PROD&&/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(o));
 app.use(cors({origin:(o,cb)=>cb(null,originOk(o)),credentials:true}));
@@ -238,7 +239,7 @@ app.post('/api/users/:name/follow',auth,(req,res)=>{const u=db.prepare('SELECT i
     notify(u.id,'fan',req.user.id,'became your fan','#/u/'+req.user.username);const lr=[...rooms.values()].find(r=>r.uid===u.id);if(lr){lr.newFans=(lr.newFans||0)+1}}res.json(pub(getUser(u.id)))});
 app.delete('/api/users/:name/follow',auth,(req,res)=>{const u=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
   if(u)db.prepare('DELETE FROM follows WHERE follower=? AND followee=?').run(req.user.id,u.id);res.json(u?pub(getUser(u.id)):{})});
-app.get('/api/streams',(req,res)=>res.json([...rooms.values()].filter(r=>!(req.session.uid&&isBlocked(req.session.uid,r.uid))).map(r=>({id:r.id,title:r.title,tags:r.tags||'',spotlight:gaps.active(getUser(r.uid)?.spotlight_until),viewers:r.viewers.size,hearts:r.hearts||0,started:r.started,dating:settingsOf(getUser(r.uid)).dating_mode,user:pub(getUser(r.uid)),distance:req.session.uid?distLabel(getUser(req.session.uid),getUser(r.uid)):null,near:req.session.uid?distOk(getUser(req.session.uid),getUser(r.uid),req.query):true,guest:r.guests?.size?pub(getUser([...r.guests.values()][0])):null,guests:r.guests?.size||0,vs:!!r.vs,
+app.get('/api/streams',(req,res)=>res.json([...rooms.values()].filter(r=>!(req.session.uid&&isBlocked(req.session.uid,r.uid))).map(r=>({id:r.id,title:r.title,tags:r.tags||'',spotlight:gaps.active(getUser(r.uid)?.spotlight_until),viewers:r.viewers.size,hearts:r.hearts||0,started:r.started,dating:settingsOf(getUser(r.uid)).dating_mode,score:batch.trendScore(r),event:batch.liveEventTag(r.uid),user:pub(getUser(r.uid)),distance:req.session.uid?distLabel(getUser(req.session.uid),getUser(r.uid)):null,near:req.session.uid?distOk(getUser(req.session.uid),getUser(r.uid),req.query):true,guest:r.guests?.size?pub(getUser([...r.guests.values()][0])):null,guests:r.guests?.size||0,vs:!!r.vs,
   following:!!(req.session.uid&&db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(req.session.uid,r.uid))}))));
 
 app.post('/api/checkout',moneyLimit,auth,async(req,res)=>{if(!stripe||!STRIPE_LIVE)return res.status(503).json({error:'Payments not connected yet'});
@@ -259,7 +260,7 @@ app.post('/api/me/location',limiter(30,60e3),auth,(req,res)=>{const lat=+req.bod
   if(!(Math.abs(lat)<=90&&Math.abs(lng)<=180))return res.status(400).json({error:'Invalid location'});
   db.prepare('UPDATE users SET lat=?,lng=? WHERE id=?').run(Math.round(lat*50)/50,Math.round(lng*50)/50,req.user.id);res.json(me(getUser(req.user.id)))});
 app.delete('/api/me/location',auth,(req,res)=>{db.prepare('UPDATE users SET lat=NULL,lng=NULL WHERE id=?').run(req.user.id);res.json(me(getUser(req.user.id)))});
-app.post('/api/payouts',moneyLimit,auth,(req,res)=>{const paypal=String(req.body?.paypal||'').trim();if(!/^\S+@\S+\.\S+$/.test(paypal)||paypal.length>254)return res.status(400).json({error:'Enter the PayPal email to pay you at'});try{const r=db.transaction(()=>{const u=getUser(req.user.id);if(u.diamonds<CASHOUT_MIN)throw new Error(`Minimum ${CASHOUT_MIN} diamonds`);
+app.post('/api/payouts',moneyLimit,auth,(req,res,next)=>batch.kycGate(req,res,next),(req,res)=>{const paypal=String(req.body?.paypal||'').trim();if(!/^\S+@\S+\.\S+$/.test(paypal)||paypal.length>254)return res.status(400).json({error:'Enter the PayPal email to pay you at'});try{const r=db.transaction(()=>{const u=getUser(req.user.id);if(u.diamonds<CASHOUT_MIN)throw new Error(`Minimum ${CASHOUT_MIN} diamonds`);
     db.prepare('UPDATE users SET diamonds=0 WHERE id=?').run(u.id);
     const gross=Math.floor(u.diamonds/DIAMONDS_PER_USD*100)/100,net=Math.round((gross-PAYOUT_FEE)*100)/100;if(net<=0)throw new Error('Payout too small after fee');
     return db.prepare('INSERT INTO payouts(user_id,diamonds,usd,gross_usd,fee_usd,net_usd,paypal) VALUES(?,?,?,?,?,?,?)').run(u.id,u.diamonds,gross,gross,PAYOUT_FEE,net,paypal)})();
@@ -382,6 +383,7 @@ function deliverDm(uid,o,{text='',kind='text',media=null,gift_k=null},exceptSock
   if(kind!=='call')gaps.track(uid,'dm');return {id,at:m.created_at,...base}}
 const gaps=require('./gaps_api.js')({app,db,auth,adminOnly,pub,me,getUser,limiter,uploadLimit,moneyLimit,upload,sharp,UPLOAD_DIR,DATA_DIR,ADMIN_ID,GIFTS,giftDiamonds,giftLockOk,levelOf,isPremium,received,rankIdx,RANKS,seatsFor,
   isBlocked,isMatch,dmBlockReason,deliverDm,pushBalance:(...a)=>pushBalance(...a),notify:(...a)=>notify(...a),get io(){return io},get rooms(){return rooms},online});
+const batch=require('./batch_api.js')({app,db,auth,adminOnly,pub,me,getUser,limiter,moneyLimit,upload,sharp,UPLOAD_DIR,ADMIN_ID,GIFTS,levelOf,isBlocked,received,notify:(...a)=>notify(...a),pushBalance:(...a)=>pushBalance(...a),gaps,get io(){return io},get rooms(){return rooms},online,PROD,CASHOUT_MIN});
 // ---- Room bans (persist across a host's streams): kind 'kick' = can't enter, 'mute' = can't chat ----
 app.get('/api/roombans',auth,(req,res)=>res.json(db.prepare('SELECT b.kind,b.created_at,u.* FROM room_bans b JOIN users u ON u.id=b.user_id WHERE b.host=? ORDER BY b.created_at DESC').all(req.user.id).map(u=>({...pub(u),kind:u.kind,at:u.created_at}))));
 app.delete('/api/roombans/:name/:kind',auth,(req,res)=>{const u=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);if(!u)return res.status(404).json({error:'Not found'});
@@ -411,7 +413,7 @@ function deleteUser(id){const u=getUser(id);if(!u)return 0;const q=(sql,...a)=>d
     q('DELETE FROM dms WHERE sender=? OR receiver=?',id,id);q('DELETE FROM profile_views WHERE viewer=? OR target=?',id,id);q('DELETE FROM friends WHERE requester=? OR addressee=?',id,id);
     q('DELETE FROM notifications WHERE user_id=? OR actor=?',id,id);q('DELETE FROM blocks WHERE blocker=? OR blocked=?',id,id);q('DELETE FROM bouncers WHERE streamer=? OR user_id=?',id,id);q('DELETE FROM room_bans WHERE host=? OR user_id=?',id,id);
     q('DELETE FROM feedback WHERE user_id=?',id);q('DELETE FROM luv WHERE sender=? OR receiver=?',id,id);q('DELETE FROM pet_log WHERE pet=? OR buyer=? OR seller=?',id,id,id);
-    q('DELETE FROM reports WHERE reporter=? OR target=?',id,id);gaps.deleteUser(id);q('DELETE FROM pw_resets WHERE user_id=?',id);
+    q('DELETE FROM reports WHERE reporter=? OR target=?',id,id);gaps.deleteUser(id);batch.deleteUser(id);q('DELETE FROM pw_resets WHERE user_id=?',id);
     const ph=db.prepare('SELECT url FROM photos WHERE user_id=?').all(id);q('DELETE FROM photos WHERE user_id=?',id);
     q('UPDATE users SET pet_owner=NULL WHERE pet_owner=?',id);try{q("DELETE FROM sessions WHERE json_extract(sess,'$.uid')=?",id)}catch(e){}q('DELETE FROM users WHERE id=?',id);
     for(const f of[u.avatar,...ph.map(p=>p.url)])if(f&&/^\/uploads\/[\w.-]+$/.test(f))fs.rm(path.join(UPLOAD_DIR,path.basename(f)),()=>{})})();
@@ -422,6 +424,8 @@ if(process.env.ADMIN_TOKEN&&fs.existsSync(path.join(__dirname,'admin_tmp.js')))r
 require('./tagged_api.js')({app,db,auth,pub,me,getUser,limiter,ageOf,levelOf,rankOf,settingsOf,received,isMatch,pair,get rooms(){return rooms},get io(){return io},notify:(...a)=>notify(...a),friendState:(...a)=>friendState(...a),isBlocked:(...a)=>isBlocked(...a),gq,ageOk,distOk,distLabel});
 app.use('/uploads',express.static(UPLOAD_DIR,{maxAge:'7d',setHeaders:r=>r.set('X-Content-Type-Options','nosniff')}));
 app.use('/vendor/leaflet',express.static(path.join(__dirname,'node_modules/leaflet/dist'),{maxAge:'30d'}));
+app.get('/js/gifts.js',(req,res)=>res.type('application/javascript').set('Cache-Control','no-cache').send('window.TAPIN_GIFTS='+JSON.stringify(GIFTS)+';'));
+app.get('/api/gifts',(req,res)=>res.json(GIFTS.map((g,k)=>({k,key:g[0],name:g[1],coins:g[2],emoji:g[3],cat:g[4],lock:g[5]??null,img:'/img/gifts/'+g[0]+'.png'}))));
 for(const d of['css','js','img'])app.use('/'+d,express.static(path.join(__dirname,d)));
 app.get('/',(req,res)=>res.sendFile(path.join(__dirname,'index.html')));
 app.get("/favicon.ico",(req,res)=>res.set("Cache-Control","public, max-age=3600").sendFile(path.join(__dirname,'img/favicon.ico')));
@@ -451,7 +455,7 @@ const endRoom=r=>{if(!r)return;clearTimeout(r.ng?.timer);vsRoomGone(r);rooms.del
   const per=db.prepare('SELECT receiver,SUM(diamonds) d,COUNT(*) n FROM gifts_sent WHERE stream_id=? GROUP BY receiver').all(r.id);
   const guests=[...(r.ghist?.keys()||[])].map(u=>{const x=per.find(p=>p.receiver===u);return{user:pub(getUser(u)),diamonds:x?.d||0,gifts:x?.n||0}}).filter(g=>g.user);
   const gifters=db.prepare('SELECT sender,SUM(coins) c,SUM(diamonds) d FROM gifts_sent WHERE stream_id=? GROUP BY sender ORDER BY d DESC LIMIT 5').all(r.id).map(x=>({user:pub(getUser(x.sender)),diamonds:x.d,coins:x.c})).filter(x=>x.user);
-  const sum={duration:dur,peak:r.peak||0,hearts:r.hearts||0,new_fans:r.newFans||0,viewers:r.uniq?.size||0,guests,gifters,gifts:per.reduce((a,p)=>a+p.n,0),diamonds:db.prepare('SELECT diamonds FROM streams WHERE id=?').get(r.id)?.diamonds||0};
+  const sum={duration:dur,peak:r.peak||0,hearts:r.hearts||0,new_fans:r.newFans||0,viewers:r.uniq?.size||0,guests,gifters,gifts:per.reduce((a,p)=>a+p.n,0),diamonds:db.prepare('SELECT diamonds FROM streams WHERE id=?').get(r.id)?.diamonds||0,watched:batch.watchedList(r.id)};
   if(dur>=60)try{gaps.track(r.uid,'live',Math.floor(dur/60))}catch(e){}
   io.to(r.host).emit('summary',sum);io.to('s'+r.id).emit('ended');io.emit('streams');return sum};
 // ---- VS battles (Tagged/Bigo-style PK). All state in memory; the server owns the clock and the scores. ----
@@ -490,7 +494,7 @@ function vsRoomGone(r){for(const [k,i] of vsInvites)if(i.from===r||i.to===r){cle
   if(r.vs===b)r.vs=null;if(b.phase==='battle')vsFinish(b,other,'disconnect');else vsClose(b)} // the remaining room keeps the result banner for a few seconds
 const isBouncer=(h,u)=>!!db.prepare('SELECT 1 FROM bouncers WHERE streamer=? AND user_id=?').get(h,u);
 const fanRank=(r,u)=>{const i=topGifters(r.id,r.uid).findIndex(x=>x.id===u);return i<0?0:i+1};
-const viewerList=r=>{const top=topGifters(r.id,r.uid).map(x=>x.id);return [...r.vu].map(([sid,u])=>({sid,user:pub(getUser(u)),guest:r.guests.has(sid),muted:r.muted.has(u),bouncer:isBouncer(r.uid,u),fan:top.indexOf(u)+1})).filter(x=>x.user)};
+const viewerList=r=>{const top=topGifters(r.id,r.uid).map(x=>x.id);return [...r.vu].map(([sid,u])=>({sid,user:pub(getUser(u)),guest:r.guests.has(sid),muted:r.muted.has(u),bouncer:isBouncer(r.uid,u),fan:top.indexOf(u)+1,hearts:r.hv?.get(u)||0})).filter(x=>x.user)};
 const pushViewers=r=>io.to('s'+r.id).emit('viewers',viewerList(r));
 const gm=(r,sid)=>{const m=r.gmute.get(sid)||{};return{host:!!m.host,self:!!m.self}};
 const guestList=r=>[...r.guests].map(([sid,u])=>({sid,user:pub(getUser(u)),mic:gm(r,sid)}));
@@ -499,7 +503,7 @@ const dropViewer=(r,sid)=>{r.viewers.delete(sid);r.vu.delete(sid);r.reqs?.delete
 io.on('connection',sock=>{
   const uid=sock.request.session?.uid;const user=uid&&getUser(uid);if(!user){sock.emit('err','Please log in');return sock.disconnect()}
   online.set(uid,(online.get(uid)||0)+1);sock.join('u'+uid);sock.emit('unread',unreadTotal(uid));let hosting=null,watching=null;const dmOk=bucket(+process.env.DM_RATE||15,10e3),heartOk=bucket(30,10e3);const chatOk=bucket(+process.env.CHAT_RATE||10,10e3),giftOk=bucket(+process.env.GIFT_RATE||20,10e3),sigOk=bucket(600,10e3);
-  const name=()=>getUser(uid).display_name||user.username;gaps.socket(sock,uid);
+  const name=()=>getUser(uid).display_name||user.username;gaps.socket(sock,uid);batch.socket(sock,uid,()=>({hosting,watching}));
   sock.on('golive',({title,tags}={},cb)=>{if(typeof cb!=='function')cb=()=>{};title=typeof title==='string'?title.trim():'';tags=typeof tags==='string'?tags.trim().slice(0,80):'';if(hosting)endRoom(hosting);
     const id=db.prepare('INSERT INTO streams(user_id,title,tags) VALUES(?,?,?)').run(uid,String(title||'').slice(0,80),tags).lastInsertRowid;
     hosting={id,uid,title:String(title||'').slice(0,80),tags,host:sock.id,viewers:new Set(),vu:new Map(),guests:new Map(),invites:new Set(),muted:new Set(db.prepare("SELECT user_id FROM room_bans WHERE host=? AND kind='mute'").all(uid).map(x=>x.user_id)),banned:new Set(db.prepare("SELECT user_id FROM room_bans WHERE host=? AND kind='kick'").all(uid).map(x=>x.user_id)),uniq:new Set(),ghist:new Map(),gmute:new Map(),hearts:0,peak:0,started:Date.now(),newFans:0,d0:received(uid)};
@@ -508,7 +512,7 @@ io.on('connection',sock=>{
   sock.on('join',({id}={},cb)=>{if(typeof cb!=='function')cb=()=>{};const r=rooms.get(+id);if(!r)return cb?.({error:'Stream ended'});
     if(isBlocked(uid,r.uid))return cb({error:'Stream unavailable'});if(r.banned.has(uid))return cb({error:'You were removed from this stream'});
     if(watching&&watching!==r){if(watching.guests.has(sock.id))endGuest(watching,sock.id);sock.leave('s'+watching.id);dropViewer(watching,sock.id)}
-    const fresh=!r.viewers.has(sock.id);if(fresh&&r.uid!==uid)gaps.track(uid,'watch');watching=r;r.uniq.add(uid);r.viewers.add(sock.id);r.vu.set(sock.id,uid);for(const g of r.guests.keys())if(g!==sock.id)io.to(g).emit('guest-peer',{sid:sock.id});r.peak=Math.max(r.peak||0,r.viewers.size);sock.join('s'+r.id);io.to(r.host).emit('viewer',{sid:sock.id});if(r.vs){const o=r.vs.a===r?r.vs.b:r.vs.a;io.to(o.host).emit('vs-peers',{sids:[sock.id]})}
+    const fresh=!r.viewers.has(sock.id);if(r.uid!==uid)batch.viewerJoin(r,uid);if(fresh&&r.uid!==uid)gaps.track(uid,'watch');watching=r;r.uniq.add(uid);r.viewers.add(sock.id);r.vu.set(sock.id,uid);for(const g of r.guests.keys())if(g!==sock.id)io.to(g).emit('guest-peer',{sid:sock.id});r.peak=Math.max(r.peak||0,r.viewers.size);sock.join('s'+r.id);io.to(r.host).emit('viewer',{sid:sock.id});if(r.vs){const o=r.vs.a===r?r.vs.b:r.vs.a;io.to(o.host).emit('vs-peers',{sids:[sock.id]})}
     io.to('s'+r.id).emit('count',r.viewers.size);io.to('s'+r.id).emit('stats',roomStats(r));if(fresh)io.to('s'+r.id).emit('joined',{sid:sock.id,user:pub(getUser(uid))});pushViewers(r);
     cb?.({ok:1,guests:guestList(r),viewers:viewerList(r),muted:r.muted.has(uid),mod:isBouncer(r.uid,uid),id:r.id,title:r.title,tags:r.tags,user:pub(getUser(r.uid)),stats:roomStats(r),top:topGifters(r.id,r.uid),
       following:!!db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(uid,r.uid),xp:levelOf(getUser(uid).xp||0),vs:r.vs&&r.vs.phase!=='done'?vsState(r.vs):null,ng:!!r.ng,nd:!!r.nd,hand:!!r.nd?.hands.has(sock.id),seats:seats(r),host_rank:rankIdx(received(r.uid))})});
@@ -600,11 +604,11 @@ io.on('connection',sock=>{
   sock.on('ng-end',(x,cb)=>{if(typeof cb!=='function')cb=()=>{};const r=hosting;if(!r?.ng)return cb({ok:1});clearTimeout(r.ng.timer);const c=r.ng.cur;r.ng=null;if(c)endGuest(r,c.sid);ngEmit(r);cb({ok:1})});
   sock.on('ng-join',(x,cb)=>{if(typeof cb!=='function')cb=()=>{};const r=watching;if(!r?.ng)return cb({error:'NextGuest is not running'});if(r.guests.has(sock.id)||r.ng.queue.some(q=>q.sid===sock.id))return cb({ok:1});
     r.ng.queue.push({sid:sock.id,uid});if(!r.ng.cur)ngAdvance(r);else ngEmit(r);cb({ok:1})});
-  const ndEmit=r=>io.to('s'+r.id).emit('nd',r.nd?{on:true,hands:[...r.nd.hands].map(([sid,u])=>({sid,user:pub(getUser(u))}))}:{on:false});
+  const ndEmit=r=>io.to('s'+r.id).emit('nd',r.nd?{on:true,hands:[...r.nd.hands].map(([sid,u])=>({sid,user:pub(getUser(u))})),cur:r.nd.cur?{sid:r.nd.cur.sid,user:pub(getUser(r.nd.cur.uid))}:null}:{on:false});
   sock.on('nd-start',(x,cb)=>{if(typeof cb!=='function')cb=()=>{};const r=hosting;if(!r)return cb({error:'Not live'});if(r.ng)return cb({error:'End NextGuest first'});if(r.vs)return cb({error:'Not during a VS battle'});r.nd={hands:new Map()};ndEmit(r);cb({ok:1})});
   sock.on('nd-hand',({up=true}={},cb)=>{if(typeof cb!=='function')cb=()=>{};const r=watching;if(!r?.nd)return cb({error:'NextDate is not running'});if(up)r.nd.hands.set(sock.id,uid);else r.nd.hands.delete(sock.id);ndEmit(r);cb({ok:1})});
   sock.on('nd-pick',({sid,skip}={},cb)=>{if(typeof cb!=='function')cb=()=>{};const r=hosting;if(!r?.nd||typeof sid!=='string'||!r.nd.hands.has(sid))return cb({error:'Not in line'});const gu=r.nd.hands.get(sid);r.nd.hands.delete(sid);
-    if(!skip){for(const g of [...r.guests.keys()])endGuest(r,g);if(r.viewers.has(sid))addGuest(r,sid,gu)}ndEmit(r);cb({ok:1})});
+    if(!skip){r.nd.cur={sid,uid:gu};r.flames?.clear();for(const g of [...r.guests.keys()])endGuest(r,g);if(r.viewers.has(sid))addGuest(r,sid,gu)}ndEmit(r);cb({ok:1})});
   sock.on('nd-end',(x,cb)=>{if(typeof cb!=='function')cb=()=>{};const r=hosting;if(r?.nd){r.nd=null;ndEmit(r)}cb({ok:1})});
   const shoutOk=bucket(3,30e3);
   sock.on('shout-price',(x,cb)=>{if(typeof cb==='function')cb({coins:SHOUT_COINS,secs:SHOUT_SECS})});
@@ -614,7 +618,7 @@ io.on('connection',sock=>{
     const u=pub(getUser(uid));io.to('s'+r.id).emit('shout',{text,from:name(),user:user.username,sender:{username:u.username,display_name:u.display_name,avatar:u.avatar},secs:SHOUT_SECS});
     for(const f of db.prepare('SELECT follower FROM follows WHERE followee=?').all(r.uid))notify(f.follower,'shout',uid,'📣 '+name()+': '+text,'#/live/view/'+r.id);
     pushBalance(uid);cb({ok:1,coins:getUser(uid).coins,price:SHOUT_COINS})});
-  sock.on('heart',()=>{const r=watching||hosting;if(!r||!heartOk())return;if(r.uid!==uid)gaps.track(uid,'heart');r.hearts=(r.hearts||0)+1;db.prepare('UPDATE streams SET hearts=? WHERE id=?').run(r.hearts,r.id);io.to('s'+r.id).emit('heart',{n:r.hearts,from:name()})});
+  sock.on('heart',()=>{const r=watching||hosting;if(!r||!heartOk())return;if(r.uid!==uid)gaps.track(uid,'heart');if(r.uid!==uid){(r.hv||(r.hv=new Map())).set(uid,(r.hv.get(uid)||0)+1);batch.viewerHeart(r,uid);if(!r.hvT)r.hvT=setTimeout(()=>{r.hvT=null;if(rooms.has(r.id))pushViewers(r)},1500)}r.hearts=(r.hearts||0)+1;db.prepare('UPDATE streams SET hearts=? WHERE id=?').run(r.hearts,r.id);io.to('s'+r.id).emit('heart',{n:r.hearts,from:name()})});
   sock.on('kick',({username}={})=>{const r=hosting||watching;if(!r||typeof username!=='string')return;const isMod=r.uid===uid||!!db.prepare('SELECT 1 FROM bouncers WHERE streamer=? AND user_id=?').get(r.uid,uid);if(!isMod)return;
     const t=db.prepare('SELECT id FROM users WHERE username=?').get(username);if(!t||t.id===r.uid)return;r.banned.add(t.id);db.prepare("INSERT OR IGNORE INTO room_bans(host,user_id,kind) VALUES(?,?,'kick')").run(r.uid,t.id);for(const sid of [...r.viewers]){const s2=io.sockets.sockets.get(sid);if(s2?.request.session?.uid===t.id){endGuest(r,sid);s2.leave('s'+r.id);dropViewer(r,sid);s2.emit('kicked')}}});
   sock.on('dm',({to,text}={},cb)=>{if(typeof cb!=='function')cb=()=>{};if(!dmOk())return cb({error:'Slow down'});

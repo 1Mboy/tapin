@@ -164,7 +164,7 @@ const IPHONE='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit
  ok(snd[0]===true&&snd[1]===false,'"Tap for sound" shows once per session, not on every stream');
  await A.evaluate(()=>api('/api/me/settings',{method:'PUT',body:{language:'Español'}}));await A.goto(URL+'#/profile');await A.reload();await A.waitForSelector('.tabbar');await A.waitForFunction(()=>document.querySelector('.tabbar').innerText.includes('En vivo'),null,{timeout:5000});
  ok(await A.evaluate(()=>document.documentElement.lang=='es'&&document.body.innerText.includes('AJUSTES')),'Spanish UI: nav + settings translated');await shot(A,'27_spanish');
- ok(!(await A.$$eval('select option',o=>o.map(x=>x.textContent))).includes('Français'),'Français (no translations) removed from the Language setting');
+ {const langs=await A.$$eval('select option',o=>o.map(x=>x.textContent));ok(['Español','Français','Português','Deutsch','Italiano'].every(l=>langs.includes(l)),'Language setting offers the translated languages (Español, Français, Português, Deutsch, Italiano)')}
  await A.evaluate(()=>api('/api/me/settings',{method:'PUT',body:{language:'English'}}));pass++;
 
  await B.evaluate(()=>endLive(true));
