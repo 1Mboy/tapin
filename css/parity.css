@@ -1,0 +1,59 @@
+/* Tap.in tagged-parity-2: black / gold / blue (VS right side red, like Tagged). No pink or purple. */
+@media (max-width:760px){
+ .tabbar{grid-template-columns:repeat(8,minmax(0,1fr))!important}
+ .tabbar>.ti{font-size:9px!important;letter-spacing:-.1px}
+ .tabbar>.ti span{font-size:18px}
+}
+/* live tile badges */
+.tim .tbdg{position:absolute;left:6px;top:6px;font:900 10px/1 system-ui;padding:3px 6px;border-radius:6px;letter-spacing:.3px;z-index:2}
+.tim .tbdg.vs{background:linear-gradient(90deg,#1e8bff,#e53935);color:#fff}
+.tim .tbdg.nd{background:var(--gg,#f5c518);color:#2a1d00}
+.anev{border:1px solid rgba(255,200,61,.5)}
+/* gift pager */
+.sg.pg2 .gpgr{display:flex;align-items:center;gap:4px}
+.sg.pg2 .gpage{flex:1;min-width:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.sg.pg2 .garr{width:26px;height:56px;border-radius:10px;background:#141821;color:var(--gold,#f5c518);font:900 22px/1 system-ui;flex:none}
+.sg.pg2 .garr:disabled{opacity:.25}
+.sg.pg2 .gdots{text-align:center;color:var(--mu,#8b93a7);font-size:11px;margin:2px 0 4px}
+.gf{position:relative}
+.gf .gnew{position:absolute;top:2px;left:2px;background:#1e8bff;color:#fff;font:900 8px/1 system-ui;padding:2px 4px;border-radius:4px;z-index:2;font-style:normal}
+.gf .glock{position:absolute;top:2px;right:2px;font-size:11px;font-style:normal;z-index:2;background:rgba(0,0,0,.65);border-radius:50%;width:18px;height:18px;display:grid;place-items:center}
+/* VS header */
+.vsx{position:absolute;left:0;right:0;top:0;display:flex;gap:4px;padding:4px;z-index:6;pointer-events:none}
+.vsh{flex:1;min-width:0;background:rgba(0,0,0,.55);border-radius:10px;padding:4px 6px;pointer-events:auto}
+.vsh.l{border-left:3px solid #1e8bff}.vsh.r{border-right:3px solid #e53935}
+.vshn{display:flex;align-items:center;gap:5px}.vshn span{display:flex;flex-direction:column;min-width:0;flex:1}
+.vshn b{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.vshn small{font-size:9px;color:#aab}
+.vsstar{color:var(--gold,#f5c518);font-size:15px}
+.vshs{display:flex;gap:5px;font-size:9px;margin-top:2px;flex-wrap:wrap}.vshs i{font-style:normal;color:#dde}
+.vshs .vsrk{background:var(--gg,#f5c518);color:#2a1d00;border-radius:4px;padding:0 4px;font-weight:900}
+.vsgoal .bar{height:4px;margin-top:3px}.vsgoal .bar.red i{background:#e53935}.vsgoal small{font-size:8px;color:#aab}
+.vstimer .vstag{display:block;font-size:10px;color:#fff;opacity:.9}
+.vsnum.gsc::before{content:"🎁 ";font-size:.85em}
+.vsfr{background:#e53935!important}.vsfl{background:#1e8bff!important}
+/* viewers also watch sheet */
+.vawg{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.vawg .tile{width:auto}
+/* friends grid */
+.ftabs .sub{font-size:12px;opacity:.75}
+.frg{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;padding:10px}
+.frt{position:relative;aspect-ratio:3/4;border-radius:12px;overflow:hidden;background:#141821}
+.frt>a{display:block;width:100%;height:100%;position:relative}
+.frt .cover,.frt img{width:100%;height:100%;object-fit:cover}
+.frt .pg{position:absolute;left:0;right:0;bottom:0;padding:8px;background:linear-gradient(transparent,rgba(0,0,0,.85));display:flex;flex-direction:column}
+.frt .frm{position:absolute;top:6px;right:6px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font:900 16px/1 system-ui;z-index:3}
+@media (max-width:760px){.frg{grid-template-columns:repeat(2,1fr)}}
+/* luv */
+.myluv{display:flex;flex-wrap:wrap;gap:12px;padding:14px;align-items:center}.myluv>div:first-child{display:flex;flex-direction:column}
+.myluv #myluvn{font-size:30px}.myluv .luvm{flex:1;min-width:220px}
+.mlv .rn,.pets .rn{width:22px;text-align:center;font-style:normal;font-weight:900;color:var(--gold,#f5c518)}
+.luv2{display:grid;gap:12px}@media(min-width:1000px){.luv2{grid-template-columns:2fr 1fr;align-items:start}}
+.sth{display:flex;align-items:center;justify-content:space-between;gap:8px}
+/* profile friends */
+.pfrow{display:flex;gap:8px;padding:0 14px 8px;flex-wrap:wrap}
+/* pets tabs */
+.ptabs{overflow-x:auto;white-space:nowrap}.ptabs a{cursor:pointer}
+/* match */
+.mbtns .mb{position:relative}.mbl{position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--mu,#8b93a7);white-space:nowrap}
+.mkeys{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:26px;font-size:11px;color:var(--mu,#8b93a7)}
+.mkeys kbd{background:#141821;border:1px solid #2a3142;border-radius:4px;padding:1px 5px;color:#fff;font:700 10px system-ui}
+.qprof .cover{width:100%;aspect-ratio:1;border-radius:12px;object-fit:cover}

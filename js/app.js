@@ -36,7 +36,7 @@ const ageCity=u=>`${nm(u)}${u.age?", "+u.age:""}`;
 const lvlBadge=n=>`<i class="lvb2">${n}</i>`;
 const ICON={pets:"🐾",luv:"💙",chats:"💬",discover:"📍",match:"🃏",live:"▶",friends:"👥",more:"☰",bell:"🔔",gold:"🪙"};
 const NAV=[["pets","Pets","#/pets"],["luv","Luv","#/luv"],["chats","Chats","#/chats"],["discover","Discover","#/discover/near"],["match","Match","#/match"],["live","Live","#/live"],["friends","Friends","#/friends"],["more","More",null]];
-const TABS=[["live","Live","#/live"],["discover","Discover","#/discover/near"],["match","Match","#/match"],["chats","Chats","#/chats"],["friends","Friends","#/friends"]];
+const TABS=NAV.filter(n=>n[2]); // mobile tab bar: same order as Tagged (Pets, Luv, Chats, Discover, Match, Live, Friends + More)
 const TITLES={live:"Live",discover:"Discover",match:"Match",chats:"Chats",friends:"Friends",pets:"Pets",luv:"Luv",profile:"Profile",u:"Profile",gold:"Coins",diamonds:"Diamond Rewards",premium:"Premium",admin:"Admin",golive:"Go Live"};
 
 // ---------------- shell ----------------
@@ -66,7 +66,7 @@ function sheet(html,cls=""){closePops();const b=document.createElement("div");b.
 function morePop(ev){ev.stopPropagation();popAt(ev,`<div class="pm">
  ${isPhone()?`<a href="#/pets">🐾 Pets</a><a href="#/luv">💙 Luv</a><a href="#/profile">👤 Profile</a><a href="#/gold">🪙 Buy Coins</a><a href="#/diamonds">💎 Diamond Rewards</a><a href="#/premium">🚀 Premium</a><hr>`:""}<a href="#/rewards">🎁 Daily rewards</a><a href="#/leaderboard">👑 Leaderboards</a><a href="#/levels">🏅 Streamer levels</a><hr>
  ${S.me?.admin?'<a href="#/admin">🛠 Admin</a>':""}<a onclick="info('support')">Support</a><a onclick="info('health')">Consumer Health Data Privacy Policy</a><a onclick="info('dns')">Do Not Sell or Share My Personal Information</a>
- <a onclick="info('privacy')">Privacy Policy</a><a onclick="info('legal')">Legal Notice</a><small>© ${APP_NAME} 2026. All rights reserved.</small></div>`)}
+ <a onclick="info('privacy')">Privacy Policy</a><a onclick="info('terms')">Terms of Service</a><a onclick="info('legal')">Legal Notice</a><small>© ${APP_NAME} 2026. All rights reserved.</small></div>`)}
 const INFO={support:["Support","Need help? Email support@tap.in or use Send Feedback in Live → Streamer tools. We reply within 48 hours. Cash-outs: 200 💎 = $1, minimum "+fmtN(CASHOUT_MIN_DIAMONDS)+" 💎 ($"+CASHOUT_MIN_DIAMONDS/DIAMONDS_PER_USD+"), flat $"+PAYOUT_FEE_USD.toFixed(2)+" fee per cash-out, paid by PayPal."],health:["Consumer Health Data Privacy Policy",`${APP_NAME} does not collect consumer health data.`],
  dns:["Do Not Sell or Share My Personal Information",`${APP_NAME} does not sell or share your personal information for advertising. There are no ads on ${APP_NAME}.`],
  privacy:["Privacy Policy","We store your account, profile, messages and stream activity to run the service. Payments are processed by Stripe; we never see your card."],
@@ -281,7 +281,7 @@ async function render(){const rt=location.hash.match(/^#\/reset\/([a-f0-9]{64})$
  S.prevRoute=S.route;S.route=r=="live"&&b=="view"?"viewer":r;scrollTo(0,0);
  try{if(r=="live"){if(b=="view")return await viewer(+c);if(b=="search")return search();if(b=="map")return mapView("live");if(b=="tools")return await tools(c||"gifters");return liveFeed()}
   if(r=="golive")return golive();if(r=="discover")return b=="map"?await mapView("discover"):await discover(b||"near");if(r=="match")return await match();if(r=="chats")return chats(b);
-  if(r=="profile")return await profile();if(r=="u")return await userProfile(b);if(r=="friends")return await friends(b||"requests");if(r=="pets")return await pets();if(r=="luv")return await luv();
+  if(r=="profile")return await profile();if(r=="u")return await userProfile(b);if(r=="friends")return await friends(b||"all");if(r=="pets")return await pets();if(r=="luv")return await luv();
   if(window.GROUTES?.[r])return await GROUTES[r](b,c);
   if(r=="admin")return await admin();if(r=="gold")return gold();if(r=="diamonds")return await diamonds();if(r=="premium")return premium();return liveFeed()}catch(e){console.error(e);toast(e.message);if(e.message=="Please log in"){setMe(null);return gate()}
   V(`<div class="empty"><div class="ei">⚠️</div><b>Something went wrong</b><p class="muted">${esc(e.message||"Please check your connection.")}</p><button class="btn pri" onclick="render()">Try again</button></div>`)}}
@@ -292,7 +292,7 @@ async function loadLive(){try{S.streams=await api("/api/streams?dist="+(S.filter
 function liveFeed(){setNav("live","Live");V(`<div class="lv"><div class="ltools"><button class="ib" title="Search" onclick="go('#/live/search')">🔍</button><button class="ib" title="Top Gifters" onclick="go('#/live/tools/gifters')">🏆</button>
  <button class="ib" title="Streamer tools" onclick="go('#/live/tools/menu')">🔧</button><button class="ib" title="Share" onclick="shareLive()">✈️</button></div><div id="lvb"><div class="muted pad">Loading…</div></div></div>
  <button class="golivefab" onclick="liveRules()">GO LIVE!</button>`);loadLive()}
-function tile(s,small){const u=s.user;return `<div class="tile ${small?"sm":""}" onclick="go('#/live/view/${s.id}')"><div class="tim">${cover(u)}<span class="vp">👁 ${fmt(s.viewers)}</span>${lvlBadge(u.level||1)}
+function tile(s,small){const u=s.user;return `<div class="tile ${small?"sm":""}" onclick="go('#/live/view/${s.id}')"><div class="tim">${cover(u)}<span class="vp">👁 ${fmt(s.viewers)}</span>${s.vs?'<span class="tbdg vs">VS</span>':s.nd?'<span class="tbdg nd">NextDate</span>':""}${lvlBadge(u.level||1)}
  ${s.tags?`<span class="tstrip">${esc(s.tags.split(/\s+/)[0].replace(/^#/,"").toUpperCase().slice(0,12))}</span>`:""}</div><b class="tn">${nm(u)}${s.guest?' <i class="gst">+1</i>':""}</b><small class="tt">${s.distance?esc(s.distance)+" · ":""}${esc(s.title||"")}${s.tags?" "+esc(s.tags):""}</small></div>`}
 function drawLive(){const all=S.streams,favs=all.filter(s=>s.following);const el=$("#lvb");if(!el)return;
  let list=[...all];const t=S.ltab,g=S.lgender,mc=(S.me.city||"").toLowerCase();
@@ -465,7 +465,7 @@ function askLocation(silent){return new Promise(ok=>{
  // Quick coarse fix first (fast on iOS); if that times out/fails for a non-permission reason, retry once with GPS.
  navigator.geolocation.getCurrentPosition(save,e=>e.code==1?fail(e):navigator.geolocation.getCurrentPosition(save,fail,{enableHighAccuracy:true,timeout:20000,maximumAge:0}),{enableHighAccuracy:false,timeout:15000,maximumAge:6e5})})}
 async function locOff(){setMe(await api("/api/me/location",{method:"DELETE"}));toast("Location turned off");if(["number"].includes(typeof +S.filters.dist)&&+S.filters.dist)S.filters.dist="city";render()}
-const ptile=(u,extra="")=>`<a class="ptile" href="#/u/${esc(u.username)}">${cover(u)}${u.live?'<i class="lbadge">LIVE</i>':""}${u.online?'<i class="od"></i>':""}${u.premium?'<i class="prb">🚀</i>':""}<span class="pg"><b>${ageCity(u)}</b><small>${esc(u.city||"")}${u.distance?" · "+esc(u.distance):""}${extra}</small></span></a>`;
+const ptile=(u,extra="")=>`<a class="ptile" href="#/u/${esc(u.username)}">${cover(u)}${u.live?'<i class="lbadge">LIVE</i>':""}${u.online?'<i class="od"></i>':""}${u.premium?'<i class="prb">🚀</i>':""}<span class="pg"><b>${ageCity(u)}${u.verified?' <i class="vbadge" title="Verified">✔</i>':""}</b><small>${esc(u.city||"")}${u.distance?" · "+esc(u.distance):""}${extra}</small></span></a>`;
 const locBanner=()=>S.me.has_location||S.locDismiss?"":`<div class="locb"><span>📍 Turn on location to see how far people are and filter by distance.</span><button class="btn sm pri" onclick="askLocation().then(render)">Turn on</button><button class="ib" onclick="S.locDismiss=1;this.parentNode.remove()">✕</button></div><div class="locmsg" role="alert" aria-live="polite" ${S.locErr?"":"hidden"}>${S.locErr||""}</div>`;
 async function discover(tab){setNav("discover","Discover");const d=await api("/api/discover?"+fq());const city=d.city||S.me.city||"Anywhere";
  const head=`<div class="dtabs"><a class="${tab=="near"?"on":""}" href="#/discover/near">📍 ${esc(city)}</a><a class="${tab=="likes"?"on":""}" href="#/discover/likes">♥ Likes <i class="cnt">${fmt(d.likes)}</i></a><a class="${tab=="views"?"on":""}" href="#/discover/views">👁 Views <i class="cnt">${fmt(d.views)}</i></a><span class="sp"></span><a class="mtog" href="#/discover/map" title="Map view">🗺 Map</a><button class="ib" onclick="filterSheet('discover')" title="Filters">⚙︎</button></div>`;

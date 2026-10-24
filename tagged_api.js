@@ -19,7 +19,7 @@ app.get('/api/map',auth,(req,res)=>{const me_=req.user,q=req.query,L=live();
     .filter(p=>q.only!=='live'||p.live)})});
 // ---- Settings ----
 app.put('/api/me/settings',auth,(req,res)=>{const cur=settingsOf(req.user),b=req.body||{},out={...cur};
-  for(const k of['dating_mode','hide_in_match','email_newsletter','email_pets','email_luv','email_friends'])if(typeof b[k]==='boolean')out[k]=b[k];
+  for(const k of['dating_mode','hide_in_match','private_profile','email_newsletter','email_pets','email_luv','email_friends'])if(typeof b[k]==='boolean')out[k]=b[k];
   if(['all','friends'].includes(b.contact))out.contact=b.contact;if(['mi','km'].includes(b.units))out.units=b.units;if(['English','Español','Français','Português','Deutsch','Italiano'].includes(b.language))out.language=b.language;
   db.prepare('UPDATE users SET settings=? WHERE id=?').run(JSON.stringify(out),req.user.id);res.json(me(getUser(req.user.id)))});
 
@@ -91,6 +91,13 @@ app.get('/api/luv',auth,(req,res)=>{const id=req.user.id;
   res.json({daily:LUV_DAILY,left:Math.max(0,LUV_DAILY-luvUsed(id)),received:db.prepare('SELECT COALESCE(SUM(amount),0) n FROM luv WHERE receiver=?').get(id).n,sent:db.prepare('SELECT COALESCE(SUM(amount),0) n FROM luv WHERE sender=?').get(id).n,
     from:db.prepare('SELECT u.*,MAX(l.created_at) at,SUM(l.amount) n FROM luv l JOIN users u ON u.id=l.sender WHERE l.receiver=? GROUP BY u.id ORDER BY at DESC LIMIT 60').all(id).map(u=>({...card(u,id),n:u.n,at:u.at})),
     suggest:db.prepare(`SELECT * FROM users WHERE id<>? AND id NOT IN(SELECT receiver FROM luv WHERE sender=? AND created_at>datetime('now','-1 day')) ORDER BY RANDOM() LIMIT 24`).all(id,id).filter(u=>!isBlocked(id,u.id)).map(u=>card(u,id))})});
+// Most Luvved top 10: scope=friends|country|all
+app.get('/api/luv/top',auth,(req,res)=>{const id=req.user.id,me_=req.user,sc=['friends','country','all'].includes(req.query.scope)?req.query.scope:'all';
+  let rows=db.prepare('SELECT u.*,SUM(l.amount) n FROM luv l JOIN users u ON u.id=l.receiver GROUP BY u.id ORDER BY n DESC LIMIT 500').all().filter(u=>!isBlocked(id,u.id));
+  if(sc==='friends'){const f=new Set(db.prepare("SELECT CASE WHEN requester=? THEN addressee ELSE requester END f FROM friends WHERE status='accepted' AND (requester=? OR addressee=?)").all(id,id,id).map(r=>r.f));f.add(id);rows=rows.filter(u=>f.has(u.id))}
+  if(sc==='country'){const tail=s=>String(s||'').split(',').pop().trim().toLowerCase();const km=(a,b)=>{const R=Math.PI/180,x=Math.sin((b.lat-a.lat)*R/2)**2+Math.cos(a.lat*R)*Math.cos(b.lat*R)*Math.sin((b.lng-a.lng)*R/2)**2;return 12742*Math.asin(Math.sqrt(x))};
+    rows=rows.filter(u=>u.id===id||(me_.lat!=null&&u.lat!=null?km(me_,u)<=2000:(tail(me_.city)&&tail(me_.city)===tail(u.city))))}
+  res.json({scope:sc,top:rows.slice(0,10).map((u,i)=>({...card(u,id),n:u.n,no:i+1}))})});
 app.post('/api/luv/:name',lim,auth,(req,res)=>{const o=byName(req.params.name);if(!o||o.id===req.user.id)return res.status(400).json({error:'Invalid user'});
   if(isBlocked(req.user.id,o.id))return res.status(403).json({error:'Unavailable'});
   // Tagged-style allowance: 10 Luv per day (resets at midnight UTC), give 1-10 at a time to anyone
@@ -105,6 +112,11 @@ app.get('/api/pets',auth,(req,res)=>{const id=req.user.id,u=getUser(id);
     .map(p=>({...pub(p),value:p.pet_value,owner:p.pet_owner?pub(getUser(p.pet_owner)):null}));
   const owner=u.pet_owner?pub(getUser(u.pet_owner)):null;
   res.json({cash:u.pet_cash,my_value:u.pet_value,owner,pets:mine,market,net:u.pet_cash+mine.reduce((a,p)=>a+p.value,0)})});
+// Pet rankings: most valuable pets and richest owners (net worth = cash + pets)
+app.get('/api/pets/rankings',auth,(req,res)=>{const id=req.user.id;
+  const val=db.prepare('SELECT * FROM users ORDER BY pet_value DESC,id LIMIT 30').all().filter(u=>!isBlocked(id,u.id)).slice(0,20).map((u,i)=>({...pub(u),value:u.pet_value,no:i+1}));
+  const rich=db.prepare('SELECT u.*,u.pet_cash+COALESCE((SELECT SUM(p.pet_value) FROM users p WHERE p.pet_owner=u.id),0) nw FROM users u ORDER BY nw DESC,u.id LIMIT 30').all().filter(u=>!isBlocked(id,u.id)).slice(0,20).map((u,i)=>({...pub(u),value:u.nw,no:i+1}));
+  res.json({value:val,rich})});
 app.post('/api/pets/:name/buy',lim,auth,(req,res)=>{const o=byName(req.params.name);if(!o||o.id===req.user.id)return res.status(400).json({error:"You can't buy yourself"});
   try{db.transaction(()=>{const p=getUser(o.id),b=getUser(req.user.id);if(p.pet_owner===b.id)throw new Error('Already your pet');if(p.pet_lock_until&&Date.parse(String(p.pet_lock_until).replace(' ','T')+'Z')>Date.now())throw new Error('This pet is locked by its owner right now');const price=p.pet_value;
     if(b.pet_cash<price)throw new Error(`You need $${price} pet cash`);db.prepare('UPDATE users SET pet_cash=pet_cash-? WHERE id=?').run(price,b.id);
