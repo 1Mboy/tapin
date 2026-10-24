@@ -63,3 +63,4 @@
  #cnow h4{padding:10px 12px 6px;font-size:13px;color:var(--gold)}
  .cnowr{display:flex;gap:12px;overflow-x:auto;padding:4px 12px 8px}.cnowr a{flex:none;width:60px;text-align:center;color:#fff;cursor:pointer}.cnowr small{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px}
 }
+.ptile.plock .cv{filter:blur(12px) brightness(.8)}
