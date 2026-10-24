@@ -30,7 +30,7 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  {const db=new (require('better-sqlite3'))(path.join(DATA,'tapin.db'));db.prepare('INSERT INTO events(title,metric,starts_at,ends_at,prize) VALUES(?,?,?,?,?)').run('Halloween Gift Cup','diamonds',new Date(Date.now()-36e5).toISOString(),new Date(Date.now()+864e5).toISOString(),'$100 bonus');db.close()}
  // 1. nav order
  await A.goto(URL+'#/live');await A.waitForSelector('.tabbar .ti');
- const nav=await A.$$eval('.tabbar .ti',x=>x.map(e=>e.textContent.replace(/[^A-Za-z]/g,'')));ok(JSON.stringify(nav)==JSON.stringify(['Pets','Luv','Chats','Discover','Match','Live','Friends','More']),'tab bar order is Pets, Luv, Chats, Discover, Match, Live, Friends, More ('+nav.join(',')+')');
+ const nav=await A.$$eval('.tabbar .ti',x=>x.map(e=>e.textContent.replace(/[^A-Za-z]/g,'')));ok(JSON.stringify(nav)==JSON.stringify(['Nearyou','Live','Match','Chats','Mylikes']),'tab bar order is Near you, Live, Match, Chats, My likes ('+nav.join(',')+')');
  ok(await A.$('.top .tb.gold')&&await A.$('.top .tb.prem'),'header has Gold and Premium buttons');
  // 2-3. two hosts live, VS battle
  const s1=await golive(H1,'Spooky #halloween'),s2=await golive(H2,'Gold rush');
@@ -38,11 +38,11 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  ok(/NO\. \d+/.test(await H1.textContent('#vsx'))&&/100K/.test(await H1.textContent('#vsx')),'VS header shows rank NO. x and 100K goal');
  ok(/#halloween/.test(await H1.textContent('.vstimer')),'VS timer shows the #hashtag');ok(/wins/.test(await H1.textContent('#vsx .vsh.r')),'each side shows VS wins');
  await shot(H1,'03_vs_host');
- await A.goto(URL+'#/live');await A.waitForSelector('.tile');await A.waitForTimeout(800);
- ok(await A.$('.tile .tbdg.vs'),'Live tile carries a VS badge during a battle');
- ok(/Halloween Gift Cup/.test(await A.textContent('.card.ann')),'Announcements column shows the admin event');
- ok(await A.$('.ltools [title="Search"]')&&await A.$('.ltools [title="Top Gifters"]')&&await A.$('.ltools [title="Share"]'),'Live toolbar: search, trophy, wrench, share');ok(await A.$('.golivefab'),'floating GO LIVE!');
- await shot(A,'01_live');await A.evaluate(()=>document.querySelector('.card.ann')?.scrollIntoView());await shot(A,'02_live_announcements');
+ await A.goto(URL+'#/live');await A.waitForSelector('.ctile');await A.waitForTimeout(800);
+ ok(await A.$('.ctile .cvs'),'Live tile carries a VS badge during a battle');
+ await A.waitForSelector('#evban',{timeout:20000});ok(/Halloween Gift Cup/.test(await A.textContent('#evban')),'Live feed event banner shows the admin event');
+ ok(await A.$('.csrch')&&await A.$('#cprofbtn')&&await A.$('.cpills b[data-p="LB"]'),'Live header: avatar, search; Leaderboards pill');ok(await A.$('.cglbar .cgr[title="Effects"]')&&await A.$('.cglbar .cgr[title="Filters"]'),'GO LIVE bar: wand + filters');ok(await A.$('.golivefab'),'floating GO LIVE!');
+ await shot(A,'01_live');await A.evaluate(()=>document.querySelector('#evban')?.scrollIntoView());await shot(A,'02_live_announcements');
  // viewer: VS header, gift pager
  await A.goto(URL+'#/live/view/'+s1);await A.waitForSelector('#vsx',{timeout:20000});ok(/Hank Host/.test(await A.textContent('#vsx')),'viewer sees VS per-side header');await shot(A,'04_vs_viewer');
  await A.evaluate(()=>giftSheet());await A.waitForSelector('.sg.pg2');ok(/SEND A GIFT!/.test(await A.textContent('.sg.pg2')),'SEND A GIFT! panel');
@@ -77,5 +77,5 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  // discover, gifters, more
  await A.goto(URL+'#/discover/near');await A.waitForSelector('.dlive');await shot(A,'16_discover');
  await A.goto(URL+'#/live/tools/gifters');await A.waitForTimeout(800);await shot(A,'17_top_gifters');
- await A.goto(URL+'#/live');await A.waitForSelector('.tabbar');await A.tap('.tabbar .ti:last-child');await A.waitForSelector('.pm:has-text("Terms of Service")');ok(/Support/.test(await A.textContent('.pm'))&&/Privacy Policy/.test(await A.textContent('.pm')),'More menu: Support, Privacy, Terms, legal');await shot(A,'18_more_menu');
+ await A.goto(URL+'#/live');await A.waitForSelector('.tabbar');await A.tap('#cprofbtn');await A.waitForSelector('.cprof');await A.tap('.clist a:has-text("More")');await A.waitForSelector('.pm:has-text("Terms of Service")');ok(/Support/.test(await A.textContent('.pm'))&&/Privacy Policy/.test(await A.textContent('.pm')),'More menu: Support, Privacy, Terms, legal');await shot(A,'18_more_menu');
  ok(!errs.length,'no page errors '+errs.join('|'));await cr.close();if(vb!==cr)await vb.close();cleanup();console.log('PARITY PASS ('+VIEWER+')')})().catch(e=>{console.error(e);cleanup();process.exit(1)});

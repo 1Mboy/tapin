@@ -3,6 +3,9 @@ module.exports=function(c){
 const {app,db,auth,pub,me,getUser,limiter,ageOf,levelOf,rankOf,settingsOf,received,isMatch,notify,friendState,isBlocked,gq,ageOk,distOk,distLabel}=c;
 const byName=n=>typeof n==='string'?db.prepare('SELECT * FROM users WHERE username=?').get(n):null;
 const live=()=>new Map([...c.rooms.values()].map(r=>[r.uid,r.id]));
+// Who-liked / who-viewed-you lists are Premium-only (Tagged-style). Non-Premium gets redacted placeholders: no id, username, full name or photo.
+const canSeeWho=u=>!!u&&(u.id===c.ADMIN_ID||c.isPremium(u));
+const redact=(u,extra)=>{const p=pub(u)||{};return{locked:true,display_name:String(p.display_name||'').slice(0,3)+'•••',age:p.age??null,city:p.city||'',avatar:null,...extra}};
 const card=(u,viewer)=>{const L=live();return{...pub(u),live:L.has(u.id),stream_id:L.get(u.id)||null,match:viewer?isMatch(viewer,u.id):false,distance:viewer?distLabel(getUser(viewer),u):null}};
 const lim=limiter(120,60e3);
 const unreadAct=uid=>db.prepare('SELECT COUNT(*) n FROM notifications WHERE user_id=? AND read_at IS NULL').get(uid).n;
@@ -35,8 +38,10 @@ app.get('/api/discover',auth,(req,res)=>{const q=req.query,city=(typeof q.city==
   res.json({city,has_location:req.user.lat!=null,users:rows.slice(0,120).map(u=>card(u,req.user.id)),
     likes:db.prepare('SELECT COUNT(*) n FROM meets WHERE target=? AND liked=1').get(req.user.id).n,
     views:db.prepare('SELECT COUNT(*) n FROM profile_views WHERE target=?').get(req.user.id).n})});
-app.get('/api/views',auth,(req,res)=>res.json(db.prepare('SELECT u.*,v.created_at viewed_at FROM profile_views v JOIN users u ON u.id=v.viewer WHERE v.target=? ORDER BY v.created_at DESC LIMIT 120').all(req.user.id).map(u=>({...card(u,req.user.id),viewed_at:u.viewed_at}))));
-app.get('/api/likes/full',auth,(req,res)=>res.json(db.prepare('SELECT u.*,m.created_at liked_at FROM meets m JOIN users u ON u.id=m.voter WHERE m.target=? AND m.liked=1 ORDER BY m.created_at DESC LIMIT 120').all(req.user.id).map(u=>({...card(u,req.user.id),liked_at:u.liked_at}))));
+app.get('/api/views',auth,(req,res)=>{const l=db.prepare('SELECT u.*,v.created_at viewed_at FROM profile_views v JOIN users u ON u.id=v.viewer WHERE v.target=? ORDER BY v.created_at DESC LIMIT 120').all(req.user.id);
+  res.json(canSeeWho(req.user)?l.map(u=>({...card(u,req.user.id),viewed_at:u.viewed_at})):l.map(u=>redact(u,{viewed_at:u.viewed_at})))});
+app.get('/api/likes/full',auth,(req,res)=>{const l=db.prepare('SELECT u.*,m.created_at liked_at FROM meets m JOIN users u ON u.id=m.voter WHERE m.target=? AND m.liked=1 ORDER BY m.created_at DESC LIMIT 120').all(req.user.id);
+  res.json(canSeeWho(req.user)?l.map(u=>({...card(u,req.user.id),liked_at:u.liked_at})):l.map(u=>redact(u,{liked_at:u.liked_at})))});
 
 // ---- Search ----
 app.get('/api/search',auth,(req,res)=>{const q=String(req.query.q||'').trim().slice(0,40);if(!q)return res.json({users:[],streams:[]});
@@ -62,7 +67,7 @@ app.delete('/api/friends/:name',auth,(req,res)=>{const o=byName(req.params.name)
 app.get('/api/activity',auth,(req,res)=>{const rows=db.prepare('SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 60').all(req.user.id);
   const reqs=db.prepare("SELECT COUNT(*) n FROM friends WHERE addressee=? AND status='pending'").get(req.user.id).n;
   const luvNew=db.prepare("SELECT COUNT(*) n FROM notifications WHERE user_id=? AND type='luv' AND read_at IS NULL").get(req.user.id).n;
-  res.json({unread:unreadAct(req.user.id),friend_requests:reqs,luv_new:luvNew,items:rows.map(n=>({id:n.id,type:n.type,text:n.text,link:n.link,at:n.created_at,read:!!n.read_at,actor:n.actor?pub(getUser(n.actor)):null}))})});
+  res.json({unread:unreadAct(req.user.id),friend_requests:reqs,luv_new:luvNew,items:rows.map(n=>{const hide=(n.type==='like'||n.type==='view')&&!canSeeWho(req.user);return hide?{id:n.id,type:n.type,text:n.text,link:'#/premium',at:n.created_at,read:!!n.read_at,actor:{locked:true,display_name:'Someone'}}:{id:n.id,type:n.type,text:n.text,link:n.link,at:n.created_at,read:!!n.read_at,actor:n.actor?pub(getUser(n.actor)):null}})})});
 app.post('/api/activity/read',auth,(req,res)=>{db.prepare('UPDATE notifications SET read_at=CURRENT_TIMESTAMP WHERE user_id=? AND read_at IS NULL').run(req.user.id);c.io.to('u'+req.user.id).emit('activity',{unread:0});res.json({unread:0})});
 
 // ---- Streamer tools ----

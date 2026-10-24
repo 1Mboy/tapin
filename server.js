@@ -297,7 +297,8 @@ app.post('/api/meet',meetLimit,auth,(req,res)=>{const{username,like}=req.body||{
   if(matched){io.to('u'+t.id).emit('match',{user:pub(req.user)});notify(t.id,'match',req.user.id,"It's a match!",'#/chats/'+req.user.username);}
   res.json({match:like&&isMatch(req.user.id,t.id),new_match:matched,user:pub(t)})});
 app.get('/api/matches',auth,(req,res)=>res.json(db.prepare('SELECT u.*,m.created_at matched_at FROM matches m JOIN users u ON u.id=(CASE WHEN m.a=? THEN m.b ELSE m.a END) WHERE m.a=? OR m.b=? ORDER BY m.created_at DESC').all(req.user.id,req.user.id,req.user.id).map(u=>({...pub(u),matched_at:u.matched_at}))));
-app.get('/api/likes',auth,(req,res)=>res.json(db.prepare('SELECT u.* FROM meets m JOIN users u ON u.id=m.voter WHERE m.target=? AND m.liked=1 ORDER BY m.created_at DESC LIMIT 50').all(req.user.id).map(pub)));
+app.get('/api/likes',auth,(req,res)=>{const l=db.prepare('SELECT u.* FROM meets m JOIN users u ON u.id=m.voter WHERE m.target=? AND m.liked=1 ORDER BY m.created_at DESC LIMIT 50').all(req.user.id);
+  res.json(isPremium(req.user)||req.user.id===ADMIN_ID?l.map(pub):l.map(u=>{const p=pub(u);return{locked:true,display_name:String(p.display_name||'').slice(0,3)+'•••',age:p.age??null,city:p.city||'',avatar:null}}))}); // non-Premium: no ids/names/photos
 const unreadTotal=uid=>db.prepare('SELECT COUNT(*) n FROM dms WHERE receiver=? AND read_at IS NULL').get(uid).n;
 app.get('/api/chats',auth,(req,res)=>{const me_=req.user.id;
   const rows=db.prepare(`SELECT CASE WHEN sender=? THEN receiver ELSE sender END other,MAX(id) last FROM dms WHERE sender=? OR receiver=? GROUP BY other ORDER BY last DESC LIMIT 100`).all(me_,me_,me_);
@@ -422,7 +423,7 @@ function deleteUser(id){const u=getUser(id);if(!u)return 0;const q=(sql,...a)=>d
 app.delete('/api/me',authLimit,auth,async(req,res)=>{const pw=req.body?.password;if(typeof pw!=='string'||!await bcrypt.compare(pw,req.user.pass))return res.status(403).json({error:'Password is wrong'});
   deleteUser(req.user.id);req.session.destroy(()=>{res.clearCookie('tapin.sid');res.json({ok:1})})});
 if(process.env.ADMIN_TOKEN&&fs.existsSync(path.join(__dirname,'admin_tmp.js')))require('./admin_tmp.js')({app,db,DATA_DIR,deleteUser});
-require('./tagged_api.js')({app,db,auth,pub,me,getUser,limiter,ageOf,levelOf,rankOf,settingsOf,received,isMatch,pair,get rooms(){return rooms},get io(){return io},notify:(...a)=>notify(...a),friendState:(...a)=>friendState(...a),isBlocked:(...a)=>isBlocked(...a),gq,ageOk,distOk,distLabel});
+require('./tagged_api.js')({app,db,auth,pub,me,getUser,limiter,ageOf,levelOf,rankOf,settingsOf,received,isMatch,pair,get rooms(){return rooms},get io(){return io},notify:(...a)=>notify(...a),friendState:(...a)=>friendState(...a),isBlocked:(...a)=>isBlocked(...a),gq,ageOk,distOk,distLabel,isPremium,ADMIN_ID});
 app.use('/uploads',express.static(UPLOAD_DIR,{maxAge:'7d',setHeaders:r=>r.set('X-Content-Type-Options','nosniff')}));
 app.use('/vendor/leaflet',express.static(path.join(__dirname,'node_modules/leaflet/dist'),{maxAge:'30d'}));
 app.get('/js/gifts.js',(req,res)=>res.type('application/javascript').set('Cache-Control','no-cache').send('window.TAPIN_GIFTS='+JSON.stringify(GIFTS)+';'));

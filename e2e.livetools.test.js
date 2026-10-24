@@ -20,7 +20,7 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  await signup(H,hu,'f','Hana Host');await signup(V,vu,'m','Vic Viewer');await signup(F,fu,'m','Finn Follower');ok(true,'3 throwaway users');
  await F.evaluate(n=>api(`/api/users/${n}/follow`,{method:'POST'}),hu);ok(true,'Finn follows host');
  await F.goto(URL+'#/discover');await F.waitForSelector('.tabbar .ti');const tg=await F.$eval('.tabbar',b=>{const R=b.getBoundingClientRect();return{l:R.left,w:R.width,W:innerWidth,pb:getComputedStyle(b).paddingBottom,c:[...b.children].map(x=>{const r=x.getBoundingClientRect();return r.left+r.width/2})}});const ts=tg.W/tg.c.length;
- ok(tg.c.length==8&&tg.l==0&&Math.abs(tg.w-tg.W)<1&&tg.c.every((c,i)=>Math.abs(c-ts*(i+.5))<3),'main tab bar: 8 tabs (Tagged order) evenly spaced across full width: '+tg.c.map(x=>x|0));
+ ok(tg.c.length==5&&tg.l==0&&Math.abs(tg.w-tg.W)<1&&tg.c.every((c,i)=>Math.abs(c-ts*(i+.5))<3),'main tab bar: 5 tabs (Near you, Live, Match, Chats, My likes) evenly spaced across full width: '+tg.c.map(x=>x|0));
  // ---- pre-live: GO LIVE → rules sheet → preview (title + START) → face toast
  await H.goto(URL+'#/live');await H.waitForSelector('.golivefab');await H.tap('.golivefab');await H.waitForSelector('.rsheet:has-text("Let\'s get livestreaming!")');const rt=await H.$eval('.rsheet',e=>e.innerText);
  ok(['Show off your talents','Nudity or pornography','Hate speech or bullying','Illegal activity','Minors','I agree to the Terms of Service','GOT IT'].every(t=>rt.includes(t))&&await H.$('.rsheet .rx'),'rules sheet text + X');await shot(H,'08a_prelive_rules');

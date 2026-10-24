@@ -100,7 +100,7 @@ const jpg=async(color)=>require('sharp')({create:{width:600,height:800,channels:
  await A.goto(URL+'#/profile');await A.waitForSelector('#lookf');await A.selectOption('#lookf','Dating');await A.waitForTimeout(600);
  await B.goto(URL+'#/u/'+ua);await B.waitForSelector('.carousel img');ok(await B.$$eval('.carousel img',x=>x.length)>=2,'profile photo carousel');ok(/Dating/.test(await B.textContent('.lookf')),'"Looking for" on profile');await shot(B,'14_profile_carousel');
  // ---- languages ----
- for(const [L,word] of [['Français','Découvrir'],['Deutsch','Entdecken'],['Português','Descobrir'],['Italiano','Scopri']]){await call(A,'/api/me/settings',{method:'PUT',body:{language:L}});await A.goto(URL+'#/live');await A.reload();await A.waitForSelector('#shell');
+ for(const [L,word] of [['Français','Près de vous'],['Deutsch','In deiner Nähe'],['Português','Perto de você'],['Italiano','Vicino a te']]){await call(A,'/api/me/settings',{method:'PUT',body:{language:L}});await A.goto(URL+'#/live');await A.reload();await A.waitForSelector('#shell');
   await A.waitForFunction(w=>document.body.innerText.includes(w),word,{timeout:8000});ok(true,`${L} UI (${word})`)}
  await shot(A,'15_lang_it');await call(A,'/api/me/settings',{method:'PUT',body:{language:'English'}});
  ok(!errs.length,'no page errors'+(errs.length?': '+errs.slice(0,3).join(' | '):''));
