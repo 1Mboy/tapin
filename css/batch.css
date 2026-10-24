@@ -29,3 +29,4 @@
 .lookf{display:block;margin-top:2px}
 .oauth{margin-top:14px;display:grid;gap:8px;justify-items:center}.oauth .or{width:100%;display:flex;align-items:center;gap:8px;color:#9aa3b5}.oauth .or:before,.oauth .or:after{content:"";flex:1;height:1px;background:#222a38}
 .uph .mgrad{pointer-events:none;z-index:1}.uph .upi{z-index:2}
+.gtabs b{white-space:nowrap}.gtabs b .gcnt{font-size:10px;padding:0 4px;margin-left:2px}@media(max-width:400px){.gtabs b{font-size:15px}}
