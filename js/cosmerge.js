@@ -17,9 +17,9 @@ const _shell=window.shell;
 window.shell=function(){const fresh=!$("#shell");_shell();if(!fresh)return;
  const tb=$(".tabbar");if(tb){tb.classList.add("c5");tb.innerHTML=TABS5.map(([k,t,h,i])=>`<a class="ti" data-k="${k}" href="${h}"><span>${i}${k=="chats"?'<i class="dot" data-badge="dm"></i>':""}</span>${t}</a>`).join("")}
  const top=$("header.top");if(top){top.classList.add("cmtop");top.insertAdjacentHTML("afterbegin",`<button class="cav" id="cprofbtn" aria-label="My profile" onclick="profSheet()"></button>`);
-  top.insertAdjacentHTML("beforeend",`<button class="tbi csrch" aria-label="Search" onclick="go('#/live/search')">🔍</button>`)}
+  top.insertAdjacentHTML("beforeend",`<a class="ccoin" href="#/gold" aria-label="Buy coins">🪙 <b data-coins>${fmt(S.coins||0)}</b><i>Buy</i></a><button class="tbi csrch" aria-label="Search" onclick="go('#/live/search')">🔍</button>`)}
  updAv();badges()};
-const _updAv=window.updAv;window.updAv=function(){_updAv();const c=$("#cprofbtn");if(c&&S.me)c.innerHTML=av(S.me,32)};
+const _updAv=window.updAv;window.updAv=function(){_updAv();const c=$("#cprofbtn");if(c&&S.me)c.innerHTML=av(S.me,32);const k=$(".ccoin b");if(k&&S.me)k.textContent=fmt(S.coins??S.me.coins??0)};
 const _setNav=window.setNav;window.setNav=function(k,t){if(k=="discover"&&isPhone())t="Near you";_setNav(k,t);if(k=="discover"&&isPhone()){const t=$("#ttl");if(t)t.textContent="Near you"}if(k=="discover")$$(".tabbar .ti").forEach(a=>a.classList.toggle("on",a.dataset.k=="discover"))};
 // ---- Live feed ----
 const tileC=s=>{const u=s.user||{};return `<div class="ctile" onclick="go('#/live/view/${s.id}')">${cover(u)}<span class="cvw">👁 ${fmt(s.viewers)}</span>${s.vs?'<span class="cvs">VS</span>':""}
@@ -48,9 +48,9 @@ window.profSheet=async function(){let m=S.me;try{m=await api("/api/me");setMe(m)
  <div class="cpring"><svg viewBox="0 0 120 120" width="120" height="120"><circle cx="60" cy="60" r="${R}" stroke="#232a3a" stroke-width="6" fill="none"/><circle cx="60" cy="60" r="${R}" stroke="url(#cg)" stroke-width="6" fill="none" stroke-linecap="round" stroke-dasharray="${C*p/100} ${C}" transform="rotate(-90 60 60)"/><defs><linearGradient id="cg"><stop offset="0" stop-color="#f5c542"/><stop offset="1" stop-color="#1e8bff"/></linearGradient></defs></svg>
   <span class="cpav">${av(m,92)}</span><i class="cppct">${p}%</i></div><button class="btn out cedit" onclick="closePops();editProfile()">✎ Edit</button>
  <a class="cver" href="#/verify" onclick="closePops()">${m.verified?"✔ Profile verified":"✔ Verify profile"}<i>›</i></a>
- <div class="cctr"><a href="#/premium" onclick="closePops()"><span>🚀</span><b>${m.boost_until&&new Date(m.boost_until)>new Date()?"On":"0"}</b><small>Boost</small></a><a href="#/gold" onclick="closePops()"><span>🪙</span><b data-coins>${fmt(m.coins)}</b><small>Gold</small></a><a href="#/diamonds" onclick="closePops()"><span>💎</span><b data-dia>${fmt(m.diamonds)}</b><small>Diamonds</small></a></div>
+ <div class="cctr"><a href="#/premium" onclick="closePops()"><span>🚀</span><b>${m.boost_until&&new Date(m.boost_until)>new Date()?"On":"0"}</b><small>Boost</small></a><a href="#/gold" onclick="closePops()"><span>🪙</span><b data-coins>${fmt(m.coins)}</b><small>Gold · <u>Buy</u></small></a><a href="#/diamonds" onclick="closePops()"><span>💎</span><b data-dia>${fmt(m.diamonds)}</b><small>Diamonds</small></a></div>
  <a class="cprem" href="#/premium" onclick="closePops()"><b>${APP_NAME} Premium</b><small>See who likes you, boost your profile & more</small></a>
- <div class="clist">${[["#/profile","👤 My profile & settings"],["#/friends","👥 Friends"],["#/luv","💙 Luv"],["#/pets","🐾 Pets"],["#/rewards","🎁 Daily rewards"],["#/leaderboard","👑 Leaderboards"],["#/levels","🏅 Streamer levels"],["#/live/tools/menu","🔧 Streamer tools"]].map(([h,t])=>`<a href="${h}" onclick="closePops()">${t}<i>›</i></a>`).join("")}<a onclick="closePops();morePop(event)">☰ More<i>›</i></a></div></div>`,"cprofs");
+ <div class="clist">${[["#/gold","🪙 Buy coins"],["#/profile","👤 My profile & settings"],["#/friends","👥 Friends"],["#/luv","💙 Luv"],["#/pets","🐾 Pets"],["#/rewards","🎁 Daily rewards"],["#/leaderboard","👑 Leaderboards"],["#/levels","🏅 Streamer levels"],["#/live/tools/menu","🔧 Streamer tools"]].map(([h,t])=>`<a href="${h}" onclick="closePops()">${t}<i>›</i></a>`).join("")}<a onclick="closePops();morePop(event)">☰ More<i>›</i></a></div></div>`,"cprofs");
  b.parentElement.classList.add("cprofbg")};
 // ---- My likes ----
 window.GROUTES=window.GROUTES||{};

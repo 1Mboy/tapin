@@ -145,19 +145,20 @@ const sess=session({store:new SqliteStore({client:db,expired:{clear:true,interva
  secret:process.env.SESSION_SECRET||/*dev only*/(()=>{const f=path.join(DATA_DIR,'.secret');if(!fs.existsSync(f))fs.writeFileSync(f,crypto.randomBytes(32).toString('hex'));return fs.readFileSync(f,'utf8')})(),
  resave:false,saveUninitialized:false,name:'tapin.sid',proxy:PROD,cookie:{httpOnly:true,sameSite:'lax',secure:COOKIE_SECURE,maxAge:30*864e5}});
 
+// Credit a paid Stripe Checkout session exactly once (shared by webhook + success-page confirm). Returns the purchase row or null.
+function creditStripe(s){if(!s||s.payment_status!=='paid')return null;let credited=false;
+  db.transaction(()=>{const p=db.prepare('SELECT * FROM purchases WHERE stripe_session=?').get(s.id);
+    if(!p||p.status!=='pending')return;if(String(p.user_id)!==String(s.client_reference_id)||(s.amount_total!=null&&s.amount_total!==Math.round(p.usd*100))){console.error('stripe mismatch for purchase',p.id);db.prepare("UPDATE purchases SET status='mismatch' WHERE id=?").run(p.id);return}
+    if(db.prepare("UPDATE purchases SET status='paid' WHERE id=? AND status='pending'").run(p.id).changes!==1)return;credited=true;
+    if(p.kind==='premium')db.prepare("UPDATE users SET premium_until=datetime(MAX(COALESCE(premium_until,'0'),datetime('now')),'+30 days') WHERE id=?").run(p.user_id);
+    else db.prepare('UPDATE users SET coins=coins+? WHERE id=?').run(p.coins,p.user_id)})();
+  const pp=db.prepare('SELECT user_id,kind,status FROM purchases WHERE stripe_session=?').get(s.id);
+  if(pp&&credited){if(pp.kind==='premium')io.to('u'+pp.user_id).emit('premium',me(getUser(pp.user_id)));pushBalance(pp.user_id)}return pp||null}
 // Stripe webhook needs the raw body, so it is registered before express.json
 app.post('/api/stripe/webhook',express.raw({type:'application/json'}),(req,res)=>{
   if(!stripe)return res.status(503).send('Payments not connected yet');
   let ev;try{ev=stripe.webhooks.constructEvent(req.body,req.headers['stripe-signature'],STRIPE_WH)}catch(e){return res.status(400).send('Bad signature')}
-  if(ev.type==='checkout.session.completed'&&ev.data.object.payment_status==='paid'){
-    const s=ev.data.object;
-    db.transaction(()=>{const p=db.prepare('SELECT * FROM purchases WHERE stripe_session=?').get(s.id);
-      if(!p||p.status==='paid')return;if(String(p.user_id)!==String(s.client_reference_id)||(s.amount_total!=null&&s.amount_total!==Math.round(p.usd*100))){console.error('webhook mismatch for purchase',p.id);db.prepare("UPDATE purchases SET status='mismatch' WHERE id=?").run(p.id);return}db.prepare("UPDATE purchases SET status='paid' WHERE id=?").run(p.id);
-      if(p.kind==='premium')db.prepare("UPDATE users SET premium_until=datetime(MAX(COALESCE(premium_until,'0'),datetime('now')),'+30 days') WHERE id=?").run(p.user_id);
-      else db.prepare('UPDATE users SET coins=coins+? WHERE id=?').run(p.coins,p.user_id)})();
-    {const pp=db.prepare('SELECT user_id,kind FROM purchases WHERE stripe_session=?').get(s.id);if(pp?.kind==='premium')io.to('u'+pp.user_id).emit('premium',me(getUser(pp.user_id)))}
-    const p=db.prepare('SELECT user_id FROM purchases WHERE stripe_session=?').get(s.id);if(p)pushBalance(p.user_id);
-  }
+  if(ev.type==='checkout.session.completed'||ev.type==='checkout.session.async_payment_succeeded')creditStripe(ev.data.object);
   res.json({received:true});
 });
 app.post('/api/paypal/webhook',express.raw({type:'*/*',limit:'100kb'}),async(req,res)=>{try{res.status(await paypal.webhook(req,db,ppCtx())).end()}catch(e){console.error('paypal webhook:',e.message);res.status(500).end()}});
@@ -247,13 +248,19 @@ app.post('/api/checkout',moneyLimit,auth,async(req,res)=>{if(!stripe||!STRIPE_LI
   const p=Number.isInteger(req.body?.pack)&&COIN_PACKAGES[req.body.pack];if(!p)return res.status(400).json({error:'Unknown pack'});
   try{const s=await stripe.checkout.sessions.create({mode:'payment',client_reference_id:String(req.user.id),
     line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:Math.round(p.p*100),product_data:{name:`${p.c.toLocaleString()} Tap.in coins`}}}],
-    success_url:BASE_URL+'/?paid=1',cancel_url:BASE_URL+'/?paid=0'});
+    payment_method_types:['card'],success_url:BASE_URL+'/?paid=1&session_id={CHECKOUT_SESSION_ID}',cancel_url:BASE_URL+'/?paid=0'});
     db.prepare("INSERT INTO purchases(user_id,stripe_session,coins,usd,status) VALUES(?,?,?,?,'pending')").run(req.user.id,s.id,p.c,p.p);res.json({url:s.url})}
+  catch(e){res.status(502).json({error:'Stripe error: '+e.message})}});
+// Success-page fallback: verify the session with Stripe server-side; idempotent via creditStripe.
+app.post('/api/checkout/confirm',moneyLimit,auth,async(req,res)=>{if(!stripe)return res.status(503).json({error:'Payments not connected yet'});
+  const id=String(req.body?.session_id||'');if(!/^cs_(live|test)_[A-Za-z0-9]+$/.test(id))return res.status(400).json({error:'Bad session'});
+  const own=db.prepare('SELECT user_id FROM purchases WHERE stripe_session=?').get(id);if(!own||own.user_id!==req.user.id)return res.status(404).json({error:'Not found'});
+  try{const s=await stripe.checkout.sessions.retrieve(id);const p=creditStripe(s)||db.prepare('SELECT status FROM purchases WHERE stripe_session=?').get(id);res.json({status:p?.status||'pending',me:me(getUser(req.user.id))})}
   catch(e){res.status(502).json({error:'Stripe error: '+e.message})}});
 app.post('/api/checkout/premium',moneyLimit,auth,async(req,res)=>{if(!stripe||!STRIPE_LIVE)return res.status(503).json({error:'Payments not connected yet'});
   try{const s=await stripe.checkout.sessions.create({mode:'payment',client_reference_id:String(req.user.id),
     line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:Math.round(PREMIUM_USD*100),product_data:{name:'Tap.in Premium — 30 days'}}}],
-    success_url:BASE_URL+'/?paid=premium',cancel_url:BASE_URL+'/?paid=0'});
+    payment_method_types:['card'],success_url:BASE_URL+'/?paid=premium&session_id={CHECKOUT_SESSION_ID}',cancel_url:BASE_URL+'/?paid=0'});
     db.prepare("INSERT INTO purchases(user_id,stripe_session,coins,usd,status,kind) VALUES(?,?,0,?,'pending','premium')").run(req.user.id,s.id,PREMIUM_USD);res.json({url:s.url})}
   catch(e){res.status(502).json({error:'Stripe error: '+e.message})}});
 // Coarse location: snapped to a 0.02° grid (~2 km) before storing; exact coordinates are never stored or returned.
