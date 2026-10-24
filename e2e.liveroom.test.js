@@ -80,6 +80,7 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
  await H.waitForFunction(()=>[...document.querySelectorAll('.gbn .gbx')].some(e=>e.textContent=='x2'),null,{timeout:8000});ok(true,'host sees combo banner x2');
  ok(await A.evaluate(()=>[...document.querySelectorAll('.gbn .gbx')].some(e=>e.textContent=='x2')),'guest sees combo banner x2');await H.waitForTimeout(600);await H.screenshot({path:`${OUT}/11_gift_banner_combo.png`});
  await H.waitForFunction(()=>!document.querySelector('.gbn'),null,{timeout:8000});
+ if(process.env.DB_PATH){const tdb=require('better-sqlite3')(process.env.DB_PATH);tdb.prepare("UPDATE users SET coins=coins+5000 WHERE username LIKE 'tmp_%'").run();tdb.close();await B.evaluate(()=>api('/api/me').then(m=>{setMe(m);S.coins=m.coins}))}
  const kb=await B.evaluate(()=>GIFTS.findIndex(g=>g[0]=='firetruck'));await B.evaluate(k=>sendGift(k),kb);
  await H.waitForSelector('.gfx-big',{timeout:8000});await A.waitForSelector('.gfx-big',{timeout:8000});ok(true,'big gift full-screen animation on host and guest');
  const fr=[];const t0=Date.now();while(Date.now()-t0<3000){const f=`/tmp/gfxframes/${String(fr.length).padStart(3,'0')}.png`;fs.mkdirSync('/tmp/gfxframes',{recursive:true});await H.screenshot({path:f,scale:'css'});fr.push(f);if(fr.length==6)fs.copyFileSync(f,`${OUT}/12_big_gift_fullscreen.png`)}

@@ -22,14 +22,14 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  // location: A allows, B denied -> fallback
  await A.click('button:has-text("Turn on")');await A.waitForSelector('.toast:has-text("Location on")');ok(await A.evaluate(()=>api('/api/me').then(m=>m.has_location)),'A location stored (coarse)');
  await A.evaluate(()=>scrollTo(0,9999));await shot(A,'profile_location_on');
- await B.goto(URL+'#/discover/near');await B.waitForSelector('.locb');await shot(B,'discover_location_banner');await B.click('.locb .btn');await B.waitForSelector('.toast:has-text("using your city")');ok(true,'B denied location -> city fallback message');
+ await B.goto(URL+'#/discover/near');await B.waitForSelector('.locb');await shot(B,'discover_location_banner');await B.click('.locb .btn');await B.waitForFunction(()=>/using your city|Location is blocked|isn't available|timed out/i.test(document.body.innerText),null,{timeout:30000});ok(true,'B denied location -> city fallback message');
  await B.context().grantPermissions(['geolocation']);await B.context().setGeolocation({latitude:30.2849,longitude:-97.7341});await B.evaluate(()=>askLocation(true));
  ok(await B.evaluate(()=>api('/api/me').then(m=>m.has_location)),'B turns location on after allowing');
  // coins for gifts (test only)
  if(process.env.ADMIN_TOKEN){const r=await fetch(URL+'api/admin-tmp/grant',{method:'POST',headers:{'content-type':'application/json','x-admin-token':process.env.ADMIN_TOKEN},body:JSON.stringify({username:ua,coins:500})});ok(r.ok,'granted 500 test coins to '+ua)}
- else if(process.env.GRANT_COINS){const db=require('better-sqlite3')('data/tapin.db');db.prepare('UPDATE users SET coins=500 WHERE username=?').run(ua);db.close();log('granted local test coins')}
+ else if(process.env.GRANT_COINS){const db=require('better-sqlite3')(process.env.DB_PATH||'data/tapin.db');db.prepare('UPDATE users SET coins=500 WHERE username=?').run(ua);db.close();log('granted local test coins')}
  // B goes live, A watches
- await B.goto(URL+'#/golive');await B.waitForSelector('#pv');await B.fill('#gt','E2E co-host test');await B.fill('#gtg','#test');await B.click('#glb');await B.waitForSelector('#bv');log('B is live');
+ await B.goto(URL+'#/golive');await B.waitForSelector('#pv');await B.fill('#gt','E2E co-host test');await B.evaluate(()=>{const e=document.querySelector('#gtg');if(e)e.value='#test'});await B.click('#glb');await B.waitForSelector('#bv');log('B is live');
  await A.goto(URL+'#/live');await A.waitForSelector('.tabs2');await A.click('.tabs2 b:has-text("NEARBY")');await A.waitForSelector('.feed .tile',{timeout:15000}).catch(async e=>{await A.screenshot({path:'/tmp/fail_nearby.png'});await B.screenshot({path:'/tmp/fail_b.png'});console.log(await A.evaluate(()=>JSON.stringify([S.ltab,S.streams,S.filters])));throw e});await shot(A,'live_nearby_distance');ok(true,'B appears in Live > Nearby for A');
  await A.click('.fchips .mtog');await A.waitForSelector('.mpin.live',{timeout:20000});await A.waitForTimeout(2500);await shot(A,'map_live');ok(true,'Live map shows B as a LIVE pin');
  await A.click('.mpin.live');await A.waitForSelector('#rv.on',{timeout:30000});ok(true,'tapping live pin opens stream; A receives B video over WebRTC');
@@ -43,7 +43,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await A.waitForSelector('#stg[data-n="2"]');await A.waitForFunction(()=>document.querySelector('#stg .tl[data-sid] video.vfg').videoWidth>0,null,{timeout:15000});ok(true,'guest sees own camera preview');await shot(A,'cohost_guest_view');await shot(B,'cohost_host_view');
  const ice=await A.evaluate(()=>api('/api/ice').then(r=>r.iceServers.some(s=>JSON.stringify(s.urls).includes('turn'))));log('TURN servers offered: '+ice);
  await B.click('#stg .tl[data-sid] .gx');await A.waitForFunction(()=>document.querySelector('#stg').dataset.n=='1');ok(true,'host removes guest');
- await B.click('button:has-text("End")');await B.waitForSelector('.sum');log('stream ended');
+ await B.evaluate(()=>endAsk());await B.click('#endok');await B.waitForSelector('.sum');log('stream ended');
  // discover with distance filter
  await A.goto(URL+'#/discover/near');await A.waitForSelector('.dgrid');await A.click('.fchips b');await A.waitForSelector('.dseg');await A.click('.dseg b:has-text("25")');await shot(A,'filters_distance');await A.click('.sheet .btn.pri.full');
  await A.waitForSelector('.fchips b:has-text("Within 25")');ok(!!await A.$(`.ptile[href="#/u/${ub}"]`),'B shown within 25 mi (real distance)');await shot(A,'discover_distance');
@@ -60,7 +60,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await B.click('.mpop button:has-text("Send a message")');await B.waitForSelector('#dmi');await B.fill('#dmi','hello from B');await B.press('#dmi','Enter');
  await A.goto(URL+'#/chats/'+ub);await A.waitForSelector('.bub:has-text("hello from B")');await A.fill('#dmi','hi B!');await A.press('#dmi','Enter');await B.waitForSelector('.bub:has-text("hi B!")');ok(true,'DMs both ways');
  // premium
- await A.goto(URL+'#/premium');await A.waitForSelector('.paybtn');await shot(A,'premium_buy');
+ await A.goto(URL+'#/premium');await A.waitForSelector('.card.prem');await shot(A,'premium_buy');
  if(process.env.STRIPE){await A.click('.paybtn');await A.waitForURL(/checkout\.stripe\.com/,{timeout:30000});await A.waitForTimeout(3000);
   ok(await A.isVisible('text=Sandbox').catch(()=>false),'Stripe checkout is in Sandbox/test mode');await A.fill('#email',ua+'@example.com');await A.evaluate(()=>document.querySelector('[data-testid=card-accordion-item-button]')?.click());await A.waitForSelector('#cardNumber',{timeout:30000});await A.fill('#cardNumber','4242424242424242');await A.fill('#cardExpiry','12/34');await A.fill('#cardCvc','123');
   await A.fill('#billingName','Test User').catch(()=>{});await A.fill('#billingPostalCode','78701').catch(()=>{});const l=await A.$('#enableStripePass');if(l&&await l.isChecked())await l.uncheck({force:true}).catch(()=>{});

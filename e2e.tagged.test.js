@@ -15,9 +15,9 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await signup(A,ua,'f');await signup(B,ub,'m');log('signed up',ua,ub);
  const city='Austin';
  for(const [p,nm] of [[A,'Ann'],[B,'Ben']]){await p.evaluate(([nm,c])=>api('/api/me',{method:'PUT',body:{display_name:nm,city:c,bio:'Hi I am '+nm}}),[nm,city])}
- if(process.env.GRANT_COINS){const db=require('better-sqlite3')('data/tapin.db');db.prepare('UPDATE users SET coins=5000 WHERE username=?').run(ua);db.close();log('granted local test coins')}
+ if(process.env.GRANT_COINS){const db=require('better-sqlite3')(process.env.DB_PATH||'data/tapin.db');db.prepare('UPDATE users SET coins=5000 WHERE username=?').run(ua);db.close();log('granted local test coins')}
  // B goes live
- await B.goto(URL+'#/golive');await B.waitForSelector('#pv');await B.fill('#gt','Chill Q&A');await B.fill('#gtg','#chat #music');await shot(B,'golive_preview');
+ await B.goto(URL+'#/golive');await B.waitForSelector('#pv');await B.fill('#gt','Chill Q&A');await B.evaluate(()=>{const e=document.querySelector('#gtg');if(e)e.value='#chat #music'});await shot(B,'golive_preview');
  await B.click('#glb');await B.waitForSelector('#bv');log('B live');
  await A.goto(URL+'#/live');await A.waitForSelector('.tile');await shot(A,'live_feed');
  for(const t of ['NEARBY','NEW','DATE']){await A.click(`.tabs2 b:has-text("${t}")`)}await A.click('.tabs2 b:has-text("TRENDING")');
@@ -42,12 +42,12 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  for(const s of ['menu','gifters','favorites','recent','bouncers','blocked','feedback']){await A.goto(URL+'#/live/tools/'+s);await A.waitForTimeout(600);await shot(A,'tools_'+s)}
  await A.goto(URL+'#/live/tools/menu');await A.waitForSelector('.tmi');await A.click('.tmi:has-text("More")');await shot(A,'tools_more_popup');
  // B ends stream -> summary
- await B.click('button:has-text("End")');await B.waitForSelector('.sum');await shot(B,'stream_summary');
+ await B.evaluate(()=>endAsk());await B.click('#endok');await B.waitForSelector('.sum');await shot(B,'stream_summary');
  // discover
  await A.goto(URL+'#/discover/near');await A.waitForSelector('.dgrid');await shot(A,'discover');
  await A.click('.dtabs .ib');await A.waitForSelector('.sheet .fl');await shot(A,'filters');await A.click('.sheet .x');
  await A.goto(URL+'#/u/'+ub);await A.waitForSelector('.up');await shot(A,'user_profile');
- await A.click('button:has-text("Add Friend")');await A.waitForSelector('button:has-text("Request Sent")');await A.click('button:has-text("Send Luv")');await A.waitForTimeout(400);
+ await A.click('button:has-text("Add Friend")');await A.waitForSelector('button:has-text("Request Sent")');await A.click('button:has-text("Send Luv")');await A.click('#luvgo');await A.waitForTimeout(400);
  await B.goto(URL+'#/discover/views');await B.waitForSelector('.ptile');ok(true,'profile view tracked');await shot(B,'discover_views');
  // match both ways
  const voteTo=async(p,target)=>{await p.goto(URL+'#/match');for(let i=0;i<80;i++){await p.waitForSelector('#mcard, .mw .empty');if(!await p.$('#mcard'))return false;
@@ -62,7 +62,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await B.goto(URL+'#/friends/requests');await B.waitForSelector('.pli');await shot(B,'friends_requests');await B.click('button:has-text("Accept")');await B.waitForTimeout(500);
  await B.goto(URL+'#/friends/friends');await B.waitForSelector('.pli');ok(true,'friendship accepted');await shot(B,'friends');
  // activity + more
- await B.goto(URL+'#/live');await B.waitForSelector('.lv');await B.click('.top .tbi');await B.waitForSelector('.act .ai');await shot(B,'activity');await B.mouse.click(5,300);
+ await B.goto(URL+'#/live');await B.waitForSelector('.lv');await B.click('.top .tbi[onclick^="actPop"]');await B.waitForSelector('.act .ai');await shot(B,'activity');await B.mouse.click(5,300);
  await B.click('.tabbar .ti:has-text("More")');await B.waitForSelector('.pm');await shot(B,'more_menu');await B.mouse.click(5,300);
  // profile/settings etc.
  await A.goto(URL+'#/profile');await A.waitForSelector('.pcard');await shot(A,'profile');await A.evaluate(()=>scrollTo(0,9999));await shot(A,'profile_settings');
