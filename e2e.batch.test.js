@@ -41,12 +41,12 @@ const IPHONE='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit
  await A.waitForSelector('.obs');const sug=await A.$$eval('.obu b',b=>b.map(x=>x.textContent));ok(sug.includes("Ben Blue"),'follow suggestions include other users');
  await A.click(`.obu:has-text("Ben Blue") button`);await A.waitForSelector('.obu:has-text("Ben Blue") button:has-text("Following")');await shot(A,'04_onboard_follow');await A.click('.obw > .btn.pri');
  await A.waitForSelector('.obbell');ok(await A.$('button:has-text("Add to Home Screen")'),'iPhone Safari (not installed): last step offers Add to Home Screen');await shot(A,'05_onboard_notify');
- await A.click('button:has-text("Maybe later")');await A.waitForSelector('.lv');const am=await A.evaluate(()=>api('/api/me'));
+ await A.click('button:has-text("Maybe later")');await A.waitForSelector('.cmlv');const am=await A.evaluate(()=>api('/api/me'));
  ok(am.onboarded&&am.city=='Atlanta'&&am.gender=='f'&&am.interests.join()=='Music,Travel,Gaming'&&am.avatar,'onboarding saved photo, gender, city, interests');
  ok(db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(uid(au),uid(bu)),'follow from suggestions saved');pass++;
 
  // ---------- 2. bugs: one GO LIVE on the empty feed, install card ----------
- await A.goto(URL+'#/live');await A.waitForSelector('.lv .empty');const gl=await A.$$eval("button",b=>b.filter(x=>/GO LIVE/.test(x.textContent)&&x.getBoundingClientRect().width>0&&getComputedStyle(x).visibility!="hidden").length);ok(gl===1,'empty Live feed shows exactly one GO LIVE button (was 2)');
+ await A.goto(URL+'#/live');await A.waitForSelector('.cmlv .empty');const gl=await A.$$eval("button",b=>b.filter(x=>/GO LIVE/.test(x.textContent)&&x.getBoundingClientRect().width>0&&getComputedStyle(x).visibility!="hidden").length);ok(gl===1,'empty Live feed shows exactly one GO LIVE button (was 2)');
  ok(await A.$('.a2card:has-text("Add Tap.in to your Home Screen")'),'iPhone install card on the feed');await shot(A,'06_live_empty_install');
  await A.click('.a2card button:has-text("How?")');await A.waitForSelector('.a2hs');await shot(A,'07_a2hs_sheet');await A.click('.a2hs .btn');
  // ---------- 3. PWA + service worker ----------
@@ -124,7 +124,7 @@ const IPHONE='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit
  const bme=await B.evaluate(()=>api('/api/me'));ok(bme.frame=='gold'&&bme.seats===5&&bme.rank.name=='Gold','Gold streamer: gold frame + 5 guest seats');
  await B.goto(URL+'#/levels');await B.waitForSelector('.lvr.got');ok((await B.$$('.lvr.got')).length===3,'levels page: Bronze/Silver/Gold unlocked');await shot(B,'21_levels');
  const sidB=await golive(B,'');ok((await A.evaluate(()=>api('/api/streams'))).find(s=>s.id==sidB).title==='','no "Live now" placeholder title');
- await A.goto(URL+'#/live');await A.waitForSelector('.tile');ok(!(await A.$eval('#lvb',e=>e.innerText)).includes('Live now'),'feed card has no "Live now" text');
+ await A.goto(URL+'#/live');await A.waitForSelector('.ctile');ok(!(await A.$eval('#lvb',e=>e.innerText)).includes('Live now'),'feed card has no "Live now" text');
  await A.goto(URL+'#/live/view/'+sidB);await A.waitForFunction(()=>S.view?.seats===5&&S.view.host_rank===2,null,{timeout:15000});ok(true,'viewer sees host seats=5, rank Gold');
  await A.evaluate(()=>{S.gtab='Exclusive';S.gpage=0;giftSheet()});await A.waitForSelector('.gsheet .gf');
  const st=await A.$$eval('.gsheet .gf',b=>b.map(x=>[x.title,x.classList.contains('lk')]));const L=Object.fromEntries(st);

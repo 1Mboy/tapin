@@ -11,7 +11,7 @@ const URL=(process.env.BASE_URL||'http://127.0.0.1:41209').replace(/\/?$/,'/'),O
  const H=await mk(process.env.HOSTDESK?desk:phone,process.env.HOST),Vp=await mk(phone,process.env.VIEWER),Vd=await mk(desk,process.env.VIEWER);
  await H.goto(URL+'#/golive');await H.waitForSelector('#pv.on');await H.waitForTimeout(1200);await H.screenshot({path:`${OUT}/${TAG}_golive.png`});console.log('golive',JSON.stringify(await info(H)));
  await H.fill('#gt','Camera test');await H.click('#glb');await H.waitForSelector('#bv.on');
- await Vp.goto(URL+'#/live');await Vp.waitForSelector('.feed .tile');await Vp.click('.feed .tile');await Vp.waitForSelector('#rv.on',{timeout:30000});
+ await Vp.goto(URL+'#/live');await Vp.waitForSelector('.cgrid .ctile');await Vp.click('.cgrid .ctile');await Vp.waitForSelector('#rv.on',{timeout:30000});
  await Vp.fill('#ci','hello from the viewer');await Vp.press('#ci','Enter');for(let i=0;i<4;i++)await Vp.click('.hb');
  await Vd.goto(URL+'#/live');await Vd.waitForSelector('.feed .tile');await Vd.click('.feed .tile');await Vd.waitForSelector('#rv.on',{timeout:30000});
  await H.waitForTimeout(1500);await Vp.waitForTimeout(300);

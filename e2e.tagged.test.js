@@ -19,10 +19,10 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  // B goes live
  await B.goto(URL+'#/golive');await B.waitForSelector('#pv');await B.fill('#gt','Chill Q&A');await B.evaluate(()=>{const e=document.querySelector('#gtg');if(e)e.value='#chat #music'});await shot(B,'golive_preview');
  await B.click('#glb');await B.waitForSelector('#bv');log('B live');
- await A.goto(URL+'#/live');await A.waitForSelector('.tile');await shot(A,'live_feed');
- for(const t of ['NEARBY','NEW','DATE']){await A.click(`.tabs2 b:has-text("${t}")`)}await A.click('.tabs2 b:has-text("TRENDING")');
- await A.click('.gp b:has-text("WOMEN")');ok(!(await A.$('.feed .tile')),'WOMEN filter hides male streamer');await A.click('.gp b:has-text("MEN")');ok(!!(await A.$('.feed .tile')),'MEN filter shows Ben');await A.click('.gp b:has-text("ALL")');
- await A.click('.feed .tile');await A.waitForSelector('#rv.on',{timeout:20000});ok(true,'WebRTC video playing for viewer');await A.waitForTimeout(800);await shot(A,'viewer');
+ await A.goto(URL+'#/live');await A.waitForSelector('.ctile');await shot(A,'live_feed');
+ for(const t of ['NEARBY','NEW','DATE','VS','FAV']){await A.click(`.cpills b[data-p="${t}"]`)}await A.click('.cpills b[data-p="FORYOU"]');
+ ok(!!(await A.$('.cgrid .ctile')),'For You grid shows Ben'); // Tagged-layout pills replace the old ALL/MEN/WOMEN row
+ await A.click('.cgrid .ctile');await A.waitForSelector('#rv.on',{timeout:20000});ok(true,'WebRTC video playing for viewer');await A.waitForTimeout(800);await shot(A,'viewer');
  await A.fill('#ci','hello ben!');await A.press('#ci','Enter');await B.waitForSelector('#lchat p:has-text("hello ben!")');ok(true,'live chat delivered');
  await A.click('.hb');await B.waitForFunction(()=>document.querySelector('[data-st="hearts"]')?.textContent!='0');ok(true,'heart counted');
  await A.click('#favb');await A.waitForSelector('#favb.on');
@@ -37,7 +37,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  for(const [h,f] of [['#/live/tools/gifters','tools'],['#/discover/near','discover'],['#/match','match'],['#/chats','chats'],['#/profile','profile'],['#/gold','gold'],['#/friends','friends'],['#/pets','pets'],['#/luv','luv'],['#/premium','premium']]){await D.goto(URL+h);await D.waitForTimeout(900);await D.screenshot({path:`${OUT}/desktop_${f}.png`})}
  await D.goto(URL+'#/live');
  // tools screens (phone)
- await A.goto(URL+'#/live');await A.waitForSelector('.lv');await A.waitForTimeout(400);await shot(A,'live_favorites');
+ await A.goto(URL+'#/live');await A.waitForSelector('.cmlv');await A.waitForTimeout(400);await shot(A,'live_favorites');
  await A.goto(URL+'#/live/search');await A.fill('#sq','ben');await A.waitForSelector('#sr .pli');await shot(A,'search');
  for(const s of ['menu','gifters','favorites','recent','bouncers','blocked','feedback']){await A.goto(URL+'#/live/tools/'+s);await A.waitForTimeout(600);await shot(A,'tools_'+s)}
  await A.goto(URL+'#/live/tools/menu');await A.waitForSelector('.tmi');await A.click('.tmi:has-text("More")');await shot(A,'tools_more_popup');
@@ -62,8 +62,8 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await B.goto(URL+'#/friends/requests');await B.waitForSelector('.pli');await shot(B,'friends_requests');await B.click('button:has-text("Accept")');await B.waitForTimeout(500);
  await B.goto(URL+'#/friends/all');await B.waitForSelector('.frt');ok(true,'friendship accepted');await shot(B,'friends');
  // activity + more
- await B.goto(URL+'#/live');await B.waitForSelector('.lv');await B.click('.top .tbi[onclick^="actPop"]');await B.waitForSelector('.act .ai');await shot(B,'activity');await B.mouse.click(5,300);
- await B.click('.tabbar .ti:has-text("More")');await B.waitForSelector('.pm');await shot(B,'more_menu');await B.mouse.click(5,300);
+ await B.goto(URL+'#/live');await B.waitForSelector('.cmlv');await B.click('.cbell');await B.waitForSelector('.act .ai');await shot(B,'activity');await B.mouse.click(5,300);
+ await B.click('#cprofbtn');await B.waitForSelector('.cprof');await B.click('.clist a:has-text("More")');await B.waitForSelector('.pm');await shot(B,'more_menu');await B.mouse.click(5,300);
  // profile/settings etc.
  await A.goto(URL+'#/profile');await A.waitForSelector('.pcard');await shot(A,'profile');await A.evaluate(()=>scrollTo(0,9999));await shot(A,'profile_settings');
  await A.click('.sw');await A.waitForSelector('.toast:has-text("Saved")');
