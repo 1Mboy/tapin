@@ -64,3 +64,9 @@
  .cnowr{display:flex;gap:12px;overflow-x:auto;padding:4px 12px 8px}.cnowr a{flex:none;width:60px;text-align:center;color:#fff;cursor:pointer}.cnowr small{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px}
 }
 .ptile.plock .cv{filter:blur(12px) brightness(.8)}
+
+/* Buy coins pill (header, every tab) */
+.ccoin{display:inline-flex;align-items:center;gap:4px;margin-left:auto;margin-right:6px;padding:5px 6px 5px 10px;border-radius:999px;background:#141821;border:1px solid var(--gold,#f5c542);color:#fff;text-decoration:none;font-size:14px;white-space:nowrap}
+.ccoin b{color:var(--gold,#f5c542)}.ccoin i{font-style:normal;font-weight:700;font-size:12px;padding:3px 8px;border-radius:999px;background:linear-gradient(135deg,#0a5cd6,#1e8bff);color:#fff}
+.cctr small u{text-decoration:none;color:#38c6ff;font-weight:700}
+.clist a[href="#/gold"]{color:var(--gold,#f5c542);font-weight:700}
