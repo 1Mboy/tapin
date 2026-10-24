@@ -13,7 +13,7 @@ window.shell=function(){const fresh=!$("#shell");_shell();if(!fresh)return;
   top.insertAdjacentHTML("beforeend",`<button class="tbi csrch" aria-label="Search" onclick="go('#/live/search')">🔍</button>`)}
  updAv();badges()};
 const _updAv=window.updAv;window.updAv=function(){_updAv();const c=$("#cprofbtn");if(c&&S.me)c.innerHTML=av(S.me,32)};
-const _setNav=window.setNav;window.setNav=function(k,t){_setNav(k,t);if(k=="discover"&&isPhone()){const t=$("#ttl");if(t)t.textContent="Near you"}if(k=="discover")$$(".tabbar .ti").forEach(a=>a.classList.toggle("on",a.dataset.k=="discover"))};
+const _setNav=window.setNav;window.setNav=function(k,t){if(k=="discover"&&isPhone())t="Near you";_setNav(k,t);if(k=="discover"&&isPhone()){const t=$("#ttl");if(t)t.textContent="Near you"}if(k=="discover")$$(".tabbar .ti").forEach(a=>a.classList.toggle("on",a.dataset.k=="discover"))};
 // ---- Live feed ----
 const tileC=s=>{const u=s.user||{};return `<div class="ctile" onclick="go('#/live/view/${s.id}')">${cover(u)}<span class="cvw">👁 ${fmt(s.viewers)}</span>${s.vs?'<span class="cvs">VS</span>':""}
  <div class="cnm"><b>${nm(u)}</b>${lvlBadge(u.level||1)}</div></div>`};
