@@ -57,3 +57,8 @@
 .mkeys{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:26px;font-size:11px;color:var(--mu,#8b93a7)}
 .mkeys kbd{background:#141821;border:1px solid #2a3142;border-radius:4px;padding:1px 5px;color:#fff;font:700 10px system-ui}
 .qprof .cover{width:100%;aspect-ratio:1;border-radius:12px;object-fit:cover}
+.ftabs,.ptabs{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center;gap:6px;overflow-x:auto}
+.ftabs a,.ptabs a{white-space:nowrap;flex:none}
+.vsui:has(#vsx) .vsname{display:none}
+.vsx~.vsvid .vsname{display:none}
+.srow select,#lookf select,.prl select{background:#141821;color:#fff;border:1px solid #2a3142;border-radius:10px;-webkit-appearance:none;appearance:none;padding:8px 28px 8px 10px}

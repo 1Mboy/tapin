@@ -60,7 +60,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await A.fill('#dmi','Hi Ben 💙');await A.press('#dmi','Enter');await B.waitForSelector('.bub:has-text("Hi Ben")');await shot(A,'conversation');
  // friends
  await B.goto(URL+'#/friends/requests');await B.waitForSelector('.pli');await shot(B,'friends_requests');await B.click('button:has-text("Accept")');await B.waitForTimeout(500);
- await B.goto(URL+'#/friends/friends');await B.waitForSelector('.pli');ok(true,'friendship accepted');await shot(B,'friends');
+ await B.goto(URL+'#/friends/all');await B.waitForSelector('.frt');ok(true,'friendship accepted');await shot(B,'friends');
  // activity + more
  await B.goto(URL+'#/live');await B.waitForSelector('.lv');await B.click('.top .tbi[onclick^="actPop"]');await B.waitForSelector('.act .ai');await shot(B,'activity');await B.mouse.click(5,300);
  await B.click('.tabbar .ti:has-text("More")');await B.waitForSelector('.pm');await shot(B,'more_menu');await B.mouse.click(5,300);

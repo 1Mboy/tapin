@@ -35,7 +35,7 @@ window.vsApply=function(st){_vsApply(st);const ui=$("#vsui");if(!ui||!st?.sides)
 
 // ---------- Live feed: Announcements fed by admin events ----------
 const _pDraw=window.drawLive;
-window.drawLive=function(){_pDraw();const a=$(".card.ann .anl");if(!a||a.querySelector(".anev"))return;const ev=(S.events||[]).filter(e=>e.state!="ended").slice(0,3);
+window.drawLive=function(){_pDraw();if(Date.now()-(S._evAt||0)>15e3){S._evAt=Date.now();api("/api/events").then(l=>{const ch=JSON.stringify(l)!=JSON.stringify(S.events);S.events=l;if(ch&&S.route=="live")drawLive()}).catch(()=>{})}const a=$(".card.ann .anl");if(!a||a.querySelector(".anev"))return;const ev=(S.events||[]).filter(e=>e.state!="ended").slice(0,3);
  if(ev.length)a.insertAdjacentHTML("afterbegin",ev.map(e=>`<a class="anb anev" href="#/events/${e.id}" style="background:linear-gradient(135deg,#3a2a00,#c99400 55%,#0066cc)"><small>${e.state=="live"?"LIVE EVENT":"COMING SOON"}</small><b>${esc(e.title)}</b><span>${esc(e.metric_label||"")}${e.prize?" · "+esc(e.prize):""}</span><i>LEARN MORE</i></a>`).join(""))};
 
 // ---------- Viewer (phone): Viewers also watch ----------
