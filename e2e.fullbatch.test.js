@@ -37,13 +37,13 @@ const jpg=async(color)=>require('sharp')({create:{width:600,height:800,channels:
  await B.goto(URL+'#/golive');await B.waitForSelector('#glb');await B.fill('#gt','Full batch test');await B.click('#glb');await B.waitForFunction(()=>S.live?.id,null,{timeout:20000});
  const sid=await B.evaluate(()=>S.live.id);const sl=await (await fetch(URL+'api/streams')).json();ok(typeof sl[0]?.score==='number','streams carry a trending score ('+sl[0].score+')');
  await A.goto(URL+'#/live/view/'+sid);await A.waitForSelector('#giftb',{timeout:20000});await A.waitForTimeout(1500);
- await A.click('#giftb');await A.waitForSelector('.gsheet .gscroll');
- ok(await A.$$eval('.gsheet .gscroll .gf',x=>x.length)===48,'Popular tab shows all 48 gifts in one scrollable grid');ok(!(await A.$('.gsheet .gpg')),'no 8-per-page pager');
+ await A.click('#giftb');await A.waitForSelector('.gsheet .gpage');
+ ok(await A.$$eval('.gsheet .gpage .gf',x=>x.length)===8,'Popular tab shows 8 gifts per page (Tagged pager)');ok(/1 \/ 6/.test(await A.textContent('#gpn')),'48 Popular gifts = 6 pages');
  const tabs=await A.$$eval('.gsheet .gtabs b',x=>x.map(b=>b.textContent.replace(/\s+/g,' ').trim()));ok(tabs.join('|')==='Popular 48|Exclusive 84|Special 24|Vault 4','tab counts: '+tabs.join(', '));
- const scrolls=await A.$eval('.gsheet .gscroll',e=>e.scrollHeight>e.clientHeight+20);ok(scrolls,'grid scrolls inside the sheet');await shot(A,'01_gift_grid');
- await A.click('.gsheet .gtabs b:has-text("Vault")');ok(await A.$$eval('.gsheet .gscroll .gf',x=>x.length)===4,'Vault tab has 4 gifts');
- const broken=await A.$$eval('.gsheet .gscroll img.gi',x=>x.filter(i=>i.complete&&!i.naturalWidth).length);ok(broken===0,'Vault images load');await shot(A,'02_vault');
- await A.evaluate(()=>api('/api/me').then(m=>{setMe(m);S.coins=m.coins}));await A.click('.gsheet .gscroll .gf:not(.lk)');await B.waitForFunction(()=>[...document.querySelectorAll('#lchat p,.lchat p')].some(p=>/Royal Scepter/.test(p.textContent)),null,{timeout:10000});ok(true,'Vault gift delivered (Royal Scepter, 1,500 coins)');
+ await A.click('#gnext');ok(/2 \/ 6/.test(await A.textContent('#gpn')),'› arrow pages forward');await shot(A,'01_gift_grid');
+ await A.click('.gsheet .gtabs b:has-text("Vault")');ok(await A.$$eval('.gsheet .gpage .gf',x=>x.length)===4,'Vault tab has 4 gifts');
+ const broken=await A.$$eval('.gsheet .gpage img.gi',x=>x.filter(i=>i.complete&&!i.naturalWidth).length);ok(broken===0,'Vault images load');await shot(A,'02_vault');
+ await A.evaluate(()=>api('/api/me').then(m=>{setMe(m);S.coins=m.coins}));await A.click('.gsheet .gpage .gf:not(.lk)');await B.waitForFunction(()=>[...document.querySelectorAll('#lchat p,.lchat p')].some(p=>/Royal Scepter/.test(p.textContent)),null,{timeout:10000});ok(true,'Vault gift delivered (Royal Scepter, 1,500 coins)');
  await A.evaluate(()=>closePops());
  for(let i=0;i<3;i++){await A.evaluate(()=>sock.emit('heart'));await A.waitForTimeout(150)}
  await B.waitForFunction(()=>(S.vlist||[]).some(v=>v.hearts>=3),null,{timeout:10000});await B.evaluate(()=>viewerSheet());await B.waitForSelector('#vsheet .vh');

@@ -99,7 +99,7 @@ const rankIdx=tot=>{let i=0;while(i<RANKS.length-1&&tot>=RANKS[i+1][1])i++;retur
 const seatsFor=uid=>rankIdx(received(uid))>=2?5:3;
 const giftLockOk=(g,su,hostUid)=>{const L=g[5];if(L==null)return true;if(typeof L==='number')return levelOf(su.xp||0).n>=L;if(L==='VIP'||L==='SUB')return isPremium(su);
   if(typeof L==='string'&&L.startsWith('R:'))return hostUid!=null&&rankIdx(received(hostUid))>=RANKS.findIndex(x=>x[0]===L.slice(2));return false};
-const settingsOf=u=>{let s={};try{s=JSON.parse(u.settings||'{}')}catch(e){}return{dating_mode:true,hide_in_match:false,contact:'all',email_newsletter:true,email_pets:true,email_luv:true,email_friends:true,language:'English',units:'mi',...s}};
+const settingsOf=u=>{let s={};try{s=JSON.parse(u.settings||'{}')}catch(e){}return{dating_mode:true,hide_in_match:false,contact:'all',email_newsletter:true,email_pets:true,email_luv:true,email_friends:true,language:'English',units:'mi',private_profile:false,...s}};
 const received=uid=>db.prepare('SELECT COALESCE(SUM(diamonds),0) n FROM gifts_sent WHERE receiver=?').get(uid).n;
 const ADMIN_ID=13; // Michael (Moneymike). Admin is checked on the server only by this id.
 const pub=u=>u&&({id:u.id,username:u.username,display_name:u.display_name||u.username,bio:u.bio||'',avatar:u.avatar,city:u.city||'',online:online.has(u.id),
@@ -233,13 +233,14 @@ app.get('/api/users/:name',(req,res)=>{const u=db.prepare('SELECT * FROM users W
     if(!prev)notify(u.id,'view',viewer,'viewed your profile','#/discover/views');
     p.friend=friendState(viewer,u.id);p.blocked=!!db.prepare('SELECT 1 FROM blocks WHERE blocker=? AND blocked=?').get(viewer,u.id);
     p.match=isMatch(viewer,u.id);p.photos=photosOf(u.id);try{p.interests=JSON.parse(u.interests||'[]')}catch(e){p.interests=[]}p.distance=distLabel(getUser(viewer),u);p.luv_today=!!db.prepare("SELECT 1 FROM luv WHERE sender=? AND receiver=? AND created_at>datetime('now','-1 day')").get(viewer,u.id)}
+  if(settingsOf(u).private_profile&&viewer!==u.id&&(!viewer||p.friend!=='friends')){p.private=true;p.bio='';p.photos=[];p.interests=[]}
   res.json(p)});
 app.post('/api/users/:name/follow',auth,(req,res)=>{const u=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
   if(!u||u.id===req.user.id)return res.status(400).json({error:"Can't follow"});if(db.prepare('INSERT OR IGNORE INTO follows(follower,followee) VALUES(?,?)').run(req.user.id,u.id).changes){
     notify(u.id,'fan',req.user.id,'became your fan','#/u/'+req.user.username);const lr=[...rooms.values()].find(r=>r.uid===u.id);if(lr){lr.newFans=(lr.newFans||0)+1}}res.json(pub(getUser(u.id)))});
 app.delete('/api/users/:name/follow',auth,(req,res)=>{const u=db.prepare('SELECT id FROM users WHERE username=?').get(req.params.name);
   if(u)db.prepare('DELETE FROM follows WHERE follower=? AND followee=?').run(req.user.id,u.id);res.json(u?pub(getUser(u.id)):{})});
-app.get('/api/streams',(req,res)=>res.json([...rooms.values()].filter(r=>!(req.session.uid&&isBlocked(req.session.uid,r.uid))).map(r=>({id:r.id,title:r.title,tags:r.tags||'',spotlight:gaps.active(getUser(r.uid)?.spotlight_until),viewers:r.viewers.size,hearts:r.hearts||0,started:r.started,dating:settingsOf(getUser(r.uid)).dating_mode,score:batch.trendScore(r),event:batch.liveEventTag(r.uid),user:pub(getUser(r.uid)),distance:req.session.uid?distLabel(getUser(req.session.uid),getUser(r.uid)):null,near:req.session.uid?distOk(getUser(req.session.uid),getUser(r.uid),req.query):true,guest:r.guests?.size?pub(getUser([...r.guests.values()][0])):null,guests:r.guests?.size||0,vs:!!r.vs,
+app.get('/api/streams',(req,res)=>res.json([...rooms.values()].filter(r=>!(req.session.uid&&isBlocked(req.session.uid,r.uid))).map(r=>({id:r.id,title:r.title,tags:r.tags||'',spotlight:gaps.active(getUser(r.uid)?.spotlight_until),viewers:r.viewers.size,hearts:r.hearts||0,started:r.started,dating:settingsOf(getUser(r.uid)).dating_mode,score:batch.trendScore(r),event:batch.liveEventTag(r.uid),user:pub(getUser(r.uid)),distance:req.session.uid?distLabel(getUser(req.session.uid),getUser(r.uid)):null,near:req.session.uid?distOk(getUser(req.session.uid),getUser(r.uid),req.query):true,guest:r.guests?.size?pub(getUser([...r.guests.values()][0])):null,guests:r.guests?.size||0,vs:!!r.vs,nd:!!r.nd,
   following:!!(req.session.uid&&db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(req.session.uid,r.uid))}))));
 
 app.post('/api/checkout',moneyLimit,auth,async(req,res)=>{if(!stripe||!STRIPE_LIVE)return res.status(503).json({error:'Payments not connected yet'});
@@ -469,7 +470,8 @@ const vsHostSock=r=>io.sockets.sockets.get(r.host);
 const vsSide=(b,r)=>b.a===r?0:1;
 const vsTop=(b,i)=>[...b.gifters[i]].sort((x,y)=>y[1]-x[1]).slice(0,3).map(([u,c])=>{const p=pub(getUser(u));return p&&{username:p.username,display_name:p.display_name,avatar:p.avatar,coins:c}}).filter(Boolean);
 const vsState=b=>({id:b.id,phase:b.phase,ends:b.ends,now:Date.now(),scores:b.scores,winner:b.winner??null,reason:b.reason||null,
-  sides:[b.a,b.b].map((r,i)=>({uid:r.uid,stream:r.id,sid:r.host,user:pub(getUser(r.uid)),top:vsTop(b,i)}))});
+  sides:[b.a,b.b].map((r,i)=>({uid:r.uid,stream:r.id,sid:r.host,user:pub(getUser(r.uid)),top:vsTop(b,i),dia:received(r.uid),no:rankNo(r.uid),tag:(((r.tags||'')+' '+(r.title||'')).split(/\s+/).find(t=>t.startsWith('#'))||'#random')}))});
+const rankNo=uid=>{const me=received(uid);return db.prepare('SELECT COUNT(*) n FROM (SELECT receiver,SUM(diamonds) d FROM gifts_sent GROUP BY receiver HAVING d>?)').get(me).n+1};
 const vsEmit=(b,ev,data)=>{for(const r of [b.a,b.b])io.to('s'+r.id).emit(ev,data)};
 function vsStart(a,c){if(vsQueue===a||vsQueue===c)vsQueue=null;
   const b={id:++vsSeq,a,b:c,scores:[0,0],gifters:[new Map(),new Map()],phase:'battle',started:Date.now(),ends:Date.now()+VS_SECS*1000};a.vs=b;c.vs=b;
