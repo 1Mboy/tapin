@@ -23,7 +23,7 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
    const vw=v.videoWidth,vh=v.videoHeight,sc=Math.max(b.width/vw,b.height/vh);return{n:st.dataset.n,tiles:st.querySelectorAll('.tl').length,fit:getComputedStyle(v).objectFit,
    x:b.left,y:b.top,w:b.width,h:b.height,iw:innerWidth,ih:innerHeight,pw:vw*sc,ph:vh*sc}},sel);
   ok(r.n=='1'&&r.tiles==1,who+': solo stage has exactly 1 tile (no empty seat counted)');
-  ok(r.fit=='cover'&&r.x<=1&&r.y<=1&&r.w>=r.iw-1&&r.h>=r.ih-1&&r.pw>=r.iw-1&&r.ph>=r.ih-1,who+': solo video fills viewport edge-to-edge '+JSON.stringify(r))};
+  ok(r.fit=='cover'&&r.x<=3&&r.w>=r.iw-5&&Math.abs(r.y/r.ih-0.13)<0.02&&Math.abs((r.y+r.h)/r.ih-0.59)<0.02&&r.pw>=r.w-1&&r.ph>=r.h-1,who+': solo video fills the Tagged box (13%..59%, full width, cover) '+JSON.stringify(r))};
  await solo(H,'#bv','host');await H.screenshot({path:FSO+'/01_solo_host.png'});console.log('  📸',FSO+'/01_solo_host.png');
  const mirror=await H.evaluate(()=>getComputedStyle(document.querySelector('#bv')).transform);ok(mirror.includes('-1'),'host own preview is mirrored');
  const join=async(p)=>{await p.goto(URL+'#/live/view/'+sid);await p.waitForFunction(()=>{const v=document.querySelector('#rv');return v&&v.videoWidth>0},null,{timeout:30000})};
@@ -50,7 +50,7 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
  await H.tap(`#vav [data-u="${au}"]`);await H.tap('.ucm:has-text("Invite to join live")');await A.waitForSelector('.sheet:has-text("invited you")');await shot(A,'04_guest_invite');await A.tap('.btn:has-text("Join live")');
  await H.waitForFunction(()=>document.querySelector('#stg').dataset.n=='2',null,{timeout:15000});
  await H.waitForFunction(()=>{const v=document.querySelector('#stg .tl[data-sid] video.vfg');return v&&v.videoWidth>0},null,{timeout:30000});ok(true,'host shows 2-person split screen with guest video');
- const geo=await H.evaluate(()=>[...document.querySelectorAll('#stg .tl')].map(t=>{const r=t.getBoundingClientRect();return [r.width|0,r.height|0]}));ok(geo.length==2&&geo.every(([w,h])=>w>=388&&h>=400),'tiles fill screen halves '+JSON.stringify(geo));
+ const geo=await H.evaluate(()=>[...document.querySelectorAll('#stg .tl')].map(t=>{const r=t.getBoundingClientRect();return [r.width|0,r.height|0]}));ok(geo.length==2&&geo.every(([w,h])=>w>=185&&w<=200&&h>=370),'Tagged layout: host + guest side by side in the live box '+JSON.stringify(geo));
  await H.waitForTimeout(900);await H.screenshot({path:FSO+'/03_host_with_1_guest.png'});console.log('  📸',FSO+'/03_host_with_1_guest.png');
  // AUDIO: host receives guest audio
  const au1=await H.evaluate(async()=>{const v=document.querySelector('#stg .tl[data-sid] video.vfg');const t=v.srcObject.getAudioTracks()[0];if(!t)return{has:false};
@@ -93,7 +93,7 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
  await shot(H,'08_host_grid_3');
  await join(C);await H.waitForSelector(`#vav [data-u="${cu}"]`);await H.tap(`#vav [data-u="${cu}"]`);await H.tap('.ucm:has-text("Invite to join live")');await C.waitForSelector('.btn:has-text("Join live")');await C.tap('.btn:has-text("Join live")');
  await H.waitForFunction(()=>document.querySelector('#stg').dataset.n=='4'&&[...document.querySelectorAll('#stg .tl[data-sid] video.vfg')].every(v=>v.videoWidth>0),null,{timeout:30000});
- const g4=await H.evaluate(()=>[...document.querySelectorAll('#stg .tl')].map(t=>{const r=t.getBoundingClientRect();return [r.width|0,r.height|0]}));ok(g4.length==4&&g4.every(([w,h])=>w>=190&&h>=400),'4 equal tiles '+JSON.stringify(g4));
+ const g4=await H.evaluate(()=>[...document.querySelectorAll('#stg .tl')].map(t=>{const r=t.getBoundingClientRect();return [r.width|0,r.height|0]}));ok(g4.length==4&&g4.every(([w,h])=>w>=185&&h>=180&&Math.abs(w-g4[0][0])<3&&Math.abs(h-g4[0][1])<3),'4 equal tiles (2x2 in the live box) '+JSON.stringify(g4));
  await shot(H,'09_host_grid_4');await C.waitForFunction(()=>document.querySelector('#stg').dataset.n=='4'&&document.querySelector('#rv').videoWidth>0,null,{timeout:30000});await shot(C,'10_guest_grid_4');
  // mute + remove guest + kick
  await H.evaluate(u=>userCard(u),au);await H.tap('.ucm:has-text("Mute in chat")');await A.waitForSelector('.toast:has-text("muted you")');await A.evaluate(()=>{$('#ci').value='muted msg';sendChat()});await H.waitForTimeout(1200);

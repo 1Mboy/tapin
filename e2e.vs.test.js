@@ -82,7 +82,7 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  ok(await V1.evaluate(()=>document.querySelector('.vsopp video.vfg').videoWidth>0),'videos stay up during punishment');await shot(H2,'04_winner_banner');await shot(H1,'04b_loser_side');
  for(const p of [H1,H2,V1,V2])await p.waitForFunction(()=>!document.querySelector('.vsopp')&&!document.querySelector('#stg[data-vs]')&&!document.querySelector('#vsui'),null,{timeout:(PUNISH+5)*1000});
  ok(true,'after punishment every room is back to the normal layout');
- const solo=await V1.evaluate(()=>{const v=document.querySelector('#rv').getBoundingClientRect();return v.width>=389&&v.height>=843});ok(solo,'viewer back to full-screen solo host');
+ const solo=await V1.evaluate(()=>{const v=document.querySelector('#rv').getBoundingClientRect();return {w:v.width,h:v.height/innerHeight,top:v.top/innerHeight}});ok(solo.w>=370&&solo.top>=0.12&&solo.top+solo.h<=0.60&&solo.h>=0.40,'viewer back to solo host filling the live box '+JSON.stringify(solo));
  const db=new Database(path.join(DATA,'tapin.db'),{readonly:true});const id=n=>db.prepare('SELECT id FROM users WHERE username=?').get(n).id;
  let b=db.prepare('SELECT * FROM battles ORDER BY id').all();ok(b.length==1&&b[0].a_score==10&&b[0].b_score==15&&b[0].winner==id(u2)&&b[0].reason=='time'&&b[0].a_uid==id(u1),'battle recorded '+JSON.stringify(b[0]));
  const pw=await H1.evaluate(n=>api('/api/users/'+n).then(u=>u.vs_wins),u2);ok(pw==1,'Gus profile shows 1 VS win');

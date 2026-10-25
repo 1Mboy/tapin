@@ -121,11 +121,11 @@ const IPHONE='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit
 
  // ---------- 9. streamer levels: frames, 5 seats, rank-exclusive gifts; SUB gifts via Premium ----------
  db.prepare("INSERT INTO gifts_sent(stream_id,sender,receiver,gift_key,coins,diamonds,created_at) VALUES(NULL,?,?,'dragon',120000,60000,datetime('now','-30 days'))").run(1,bid);
- const bme=await B.evaluate(()=>api('/api/me'));ok(bme.frame=='gold'&&bme.seats===5&&bme.rank.name=='Gold','Gold streamer: gold frame + 5 guest seats');
+ const bme=await B.evaluate(()=>api('/api/me'));ok(bme.frame=='gold'&&bme.seats>=8&&bme.rank.name=='Gold','Gold streamer: gold frame + uncapped guest seats (GUEST_SEATS, default 8)');
  await B.goto(URL+'#/levels');await B.waitForSelector('.lvr.got');ok((await B.$$('.lvr.got')).length===3,'levels page: Bronze/Silver/Gold unlocked');await shot(B,'21_levels');
  const sidB=await golive(B,'');ok((await A.evaluate(()=>api('/api/streams'))).find(s=>s.id==sidB).title==='','no "Live now" placeholder title');
  await A.goto(URL+'#/live');await A.waitForSelector('.ctile');ok(!(await A.$eval('#lvb',e=>e.innerText)).includes('Live now'),'feed card has no "Live now" text');
- await A.goto(URL+'#/live/view/'+sidB);await A.waitForFunction(()=>S.view?.seats===5&&S.view.host_rank===2,null,{timeout:15000});ok(true,'viewer sees host seats=5, rank Gold');
+ await A.goto(URL+'#/live/view/'+sidB);await A.waitForFunction(()=>S.view?.seats>=8&&S.view.host_rank===2,null,{timeout:15000});ok(true,'viewer sees host seats>=8 (uncapped), rank Gold');
  await A.evaluate(()=>{S.gtab='Exclusive';S.gpage=0;giftSheet()});await A.waitForSelector('.gsheet .gf');
  const st=await A.$$eval('.gsheet .gf',b=>b.map(x=>[x.title,x.classList.contains('lk')]));const L=Object.fromEntries(st);
  ok(L['Gold Throne']===false&&L['Silver Crown']===false&&L['Platinum Comet']===true&&L['Play Ticket']===true,'rank gifts: Silver/Gold unlocked in a Gold room, Platinum locked; SUB locked without Premium');await shot(A,'22_exclusive_gifts');
