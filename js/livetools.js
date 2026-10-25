@@ -41,7 +41,7 @@ const sysMsgs=()=>`<p class="sys warn">${IC.warn}<span>Let's keep Live fun! <em>
 const sysWarn=()=>`<p class="sys warn">${IC.warn}<span>Let's keep Live fun! <em>Nudity</em> or <em>obscene behavior</em> will result in <em>account deletion</em>.</span></p><p class="sys mod">${IC.oshield}<span><em>Modbot</em> is watching to keep this stream clean!</span></p>`;
 function hostPhone(stage){const d=S.me.diamonds||0,lv=S.me.xp?.n||S.me.level||1;setTimeout(()=>{shoutListen();fxReapply();gameListen();hostTapChat();drawGame()},0);
  return `<div class="lvx bc tgd tgx">${stage}
- <div class="lx-top"><div class="hcard"><div class="lx-pill">${av(S.me,36)}<i class="odot"></i><span><b>${nm(S.me)}</b><small class="lvl2">${IC.crown} Lv ${lv} · <i data-st="diamonds">${fmt(d)}</i> pts</small></span></div>
+ <div class="lx-top"><div class="hcard"><div class="lx-pill tpill">${av(S.me,34)}<i class="odot"></i><span><b>${nm(S.me)}</b><small class="lvl2"><i class="tstar">★</i> <i data-st="fans">${fmt(S.me.fans||0)}</i> · ${IC.crown} Lv ${lv}</small></span></div>
    <div class="hrow"><span>${IC.dia} <i data-st="stream_diamonds">0</i></span><span>${IC.hrt} <i data-st="hearts">0</i></span><span class="lx-cnt" role="button" onclick="viewerSheet()">${IC.person} <i data-st="viewers">0</i></span><span class="ghide"><i data-st="stream_gifts">0</i></span></div></div>
   <span class="sp"></span><div class="lx-vw" id="vav" hidden></div><button class="tx" onclick="moreDrawer()" title="Minimize" aria-label="More">${IC.chev}</button><button class="tx" id="endx" onclick="endAsk()" title="End stream" aria-label="End stream">${IC.x}</button></div>
  <button class="edgeL" id="diab" onclick="diaInfo()" title="Diamonds" aria-label="Diamonds">${IC.diaplus}</button>
