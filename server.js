@@ -584,7 +584,7 @@ io.on('connection',sock=>{
     if(r.cfg&&uid!==r.uid){const c=r.cfg;if(c.comment==='followers'&&!db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(uid,r.uid))return sock.emit('err','Only followers can comment in this stream');
       if(c.slow>0){r.lastMsg=r.lastMsg||new Map();const t=r.lastMsg.get(uid)||0;if(Date.now()-t<c.slow*1000)return sock.emit('err',`Slow mode: wait ${c.slow}s between messages`);r.lastMsg.set(uid,Date.now())}
       if(c.words?.length&&c.words.some(w=>text.toLowerCase().includes(w)))return sock.emit('err','Your message contains a word the host blocked')}
-    db.prepare('INSERT INTO chat(stream_id,user_id,text) VALUES(?,?,?)').run(r.id,uid,text);const msg={from:name(),user:user.username,text,fan:fanRank(r,uid)};
+    db.prepare('INSERT INTO chat(stream_id,user_id,text) VALUES(?,?,?)').run(r.id,uid,text);const msg={from:name(),user:user.username,avatar:user.avatar||null,text,fan:fanRank(r,uid)};
     for(const sid of [r.host,...r.viewers]){const s2=io.sockets.sockets.get(sid);const ru=s2?.request.session?.uid;if(s2&&!(ru&&ru!==uid&&isBlocked(ru,uid)))s2.emit('chat',msg)}});
   sock.on('gift',({k,to}={},cb)=>{if(typeof cb!=='function')cb=()=>{};if(!giftOk())return cb({error:'Slow down'});if(!Number.isInteger(k))return cb({error:'Bad gift'});const r=watching;const g=GIFTS[k];if(!r)return cb?.({error:'Not watching'});
     if(!g||!(g[2]>0)||!giftLockOk(g,getUser(uid),r.uid))return cb?.({error:'Gift locked'});if(r.uid===uid)return cb?.({error:"Can't gift yourself"});

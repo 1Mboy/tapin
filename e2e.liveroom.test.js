@@ -39,7 +39,7 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
  const acts=await H.$$eval('.ucard button',b=>b.map(x=>x.textContent.trim()));ok(['Follow','Profile','Mention','Invite to join live','Mute in chat','Kick from room','Block','Report'].every(a=>acts.some(t=>t.includes(a))),'host card actions: '+acts.join(' | ').replace(/\s+/g,' '));
  const small=await H.$$eval('.ucard button',b=>b.filter(x=>{const r=x.getBoundingClientRect();return r.height<44}).length);ok(small===0,'all card buttons ≥44px tall');
  await shot(H,'01_host_profile_card');
- await H.tap('.ucx');await H.waitForSelector(`#vav [data-u="${au}"]`);await H.tap(`#vav [data-u="${au}"]`);await H.waitForSelector('.ucard .ucn:has-text("Alex Viewer")');ok(true,'tap on viewer avatar strip opens card');await H.tap('.ucx');
+ await H.tap('.ucx');await H.evaluate(()=>viewerSheet());await H.tap(`#vsheet [data-u="${au}"]`);await H.waitForSelector('.ucard .ucn:has-text("Alex Viewer")');ok(true,'tap on viewer avatar strip opens card');await H.tap('.ucx');
  await H.tap('.lx-cnt');await H.waitForSelector(`#vsheet [data-u="${au}"]`);await shot(H,'02_host_viewer_list');await H.tap(`#vsheet [data-u="${au}"]`);await H.waitForSelector('.ucard');ok(true,'viewer list → card');await H.tap('.ucx');
  await A.fill('#ci','hi host!');await A.press('#ci','Enter');await H.waitForSelector(`#lchat p[data-u="${au}"]:has-text("hi host!")`);await H.tap(`#lchat p[data-u="${au}"]:has-text("hi host!") .cn`);await H.waitForSelector('.ucard');ok(true,'tap on chat name opens card');
  await H.tap('.ucbtn:has-text("Follow")');await H.waitForSelector('.ucbtn:has-text("Following")');ok(true,'follow from card');
@@ -47,7 +47,7 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
  // viewer taps host
  await A.tap('.lx-pill .tapav');await A.waitForSelector('.ucard .bh');const va=await A.$$eval('.ucard button',b=>b.map(x=>x.textContent.trim()).join('|'));ok(/Gift/.test(va)&&/Report/.test(va)&&!/Kick/.test(va),'viewer card on host: '+va.replace(/\s+/g,' '));await shot(A,'03_viewer_taps_host');await A.tap('.ucx');
  // 2) invite -> split screen
- await H.tap(`#vav [data-u="${au}"]`);await H.tap('.ucm:has-text("Invite to join live")');await A.waitForSelector('.sheet:has-text("invited you")');await shot(A,'04_guest_invite');await A.tap('.btn:has-text("Join live")');
+ await H.evaluate(()=>viewerSheet());await H.tap(`#vsheet [data-u="${au}"]`);await H.tap('.ucm:has-text("Invite to join live")');await A.waitForSelector('.sheet:has-text("invited you")');await shot(A,'04_guest_invite');await A.tap('.btn:has-text("Join live")');
  await H.waitForFunction(()=>document.querySelector('#stg').dataset.n=='2',null,{timeout:15000});
  await H.waitForFunction(()=>{const v=document.querySelector('#stg .tl[data-sid] video.vfg');return v&&v.videoWidth>0},null,{timeout:30000});ok(true,'host shows 2-person split screen with guest video');
  const geo=await H.evaluate(()=>[...document.querySelectorAll('#stg .tl')].map(t=>{const r=t.getBoundingClientRect();return [r.width|0,r.height|0]}));ok(geo.length==2&&geo.every(([w,h])=>w>=185&&w<=200&&h>=370),'Tagged layout: host + guest side by side in the live box '+JSON.stringify(geo));
@@ -87,11 +87,11 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
  const np=await H.$$eval('.gsp',e=>e.length).catch(()=>0);console.log('  frames',fr.length);
  await H.waitForFunction(()=>!document.querySelector('.gfx-big'),null,{timeout:8000});await A.waitForFunction(()=>!document.querySelector('.gfx-big'),null,{timeout:8000});ok(true,'big gift animation clears');
  // 3rd and 4th person: request + accept, invite
- await B.tap('#gbtn');await H.waitForSelector('.greq .btn.pri');await H.tap('.greq .btn.pri');await H.waitForFunction(()=>document.querySelector('#stg').dataset.n=='3',null,{timeout:15000});
+ await B.tap('#menub');await B.tap('#gbtn');await H.waitForSelector('.greq .btn.pri');await H.tap('.greq .btn.pri');await H.waitForFunction(()=>document.querySelector('#stg').dataset.n=='3',null,{timeout:15000});
  await H.waitForFunction(()=>[...document.querySelectorAll('#stg .tl[data-sid] video.vfg')].every(v=>v.videoWidth>0),null,{timeout:30000});ok(true,'3 people: equal 2x2 grid with invite seat');
  await A.waitForFunction(()=>document.querySelector('#stg').dataset.n=='3'&&[...document.querySelectorAll('#stg .tl[data-sid] video.vfg')].every(v=>v.videoWidth>0),null,{timeout:30000});ok(true,'guest A sees guest B (guest↔guest mesh)');
  await shot(H,'08_host_grid_3');
- await join(C);await H.waitForSelector(`#vav [data-u="${cu}"]`);await H.tap(`#vav [data-u="${cu}"]`);await H.tap('.ucm:has-text("Invite to join live")');await C.waitForSelector('.btn:has-text("Join live")');await C.tap('.btn:has-text("Join live")');
+ await join(C);await H.evaluate(()=>viewerSheet());await H.waitForSelector(`#vsheet [data-u="${cu}"]`);await H.tap(`#vsheet [data-u="${cu}"]`);await H.tap('.ucm:has-text("Invite to join live")');await C.waitForSelector('.btn:has-text("Join live")');await C.tap('.btn:has-text("Join live")');
  await H.waitForFunction(()=>document.querySelector('#stg').dataset.n=='4'&&[...document.querySelectorAll('#stg .tl[data-sid] video.vfg')].every(v=>v.videoWidth>0),null,{timeout:30000});
  const g4=await H.evaluate(()=>[...document.querySelectorAll('#stg .tl')].map(t=>{const r=t.getBoundingClientRect();return [r.width|0,r.height|0]}));ok(g4.length==4&&g4.every(([w,h])=>w>=185&&h>=180&&Math.abs(w-g4[0][0])<3&&Math.abs(h-g4[0][1])<3),'4 equal tiles (2x2 in the live box) '+JSON.stringify(g4));
  await shot(H,'09_host_grid_4');await C.waitForFunction(()=>document.querySelector('#stg').dataset.n=='4'&&document.querySelector('#rv').videoWidth>0,null,{timeout:30000});await shot(C,'10_guest_grid_4');

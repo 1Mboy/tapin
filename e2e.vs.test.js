@@ -29,9 +29,9 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  const s1=await golive(H1,'Ava live'),s2=await golive(H2,'Gus live');ok(s1&&s2,`two hosts live #${s1} #${s2}`);
  await watch(V1,s1);await watch(V2,s2);ok(true,'each viewer watching their own host');
  // ---- VS button + picker ----
- const vsx=await H1.evaluate(()=>[...document.querySelector('#tbar').children].map(b=>b.id));ok(vsx[1]=='vsb'&&vsx[0]=='tipb','VS is the 2nd icon on the Tagged host bar (after tips lightbulb)');
+ await H1.tap('#hmenub');const vsx=await H1.$$eval('.tmenu .pm a',b=>b.map(x=>x.id));await H1.evaluate(()=>closePops());ok(vsx[1]=='hm-vsb','VS is the 2nd item in the host tools menu');
  ok(!(await V1.$('#vsb')),'viewers do not get a VS button');
- await H1.tap('#vsb');await H1.waitForSelector(`.vsrow:has-text("Gus Gold") .btn.pri`);ok(true,'VS picker lists the other live host');
+ await H1.tap('#hmenub');await H1.tap('#hm-vsb');await H1.waitForSelector(`.vsrow:has-text("Gus Gold") .btn.pri`);ok(true,'VS picker lists the other live host');
  ok(await H1.$('#vsrand'),'picker offers Random match');await shot(H1,'01_vs_picker');
  // ---- challenge -> invite popup -> accept ----
  await H1.tap(`.vsrow:has-text("Gus Gold") .btn.pri`);await H1.waitForSelector('.vswait:has-text("Gus Gold")');
@@ -89,13 +89,13 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  await H1.evaluate(n=>userCard(n),v1);await H1.waitForTimeout(300);await H1.evaluate(()=>closePops());await H1.evaluate(n=>userCard(n),u2);await H1.waitForSelector('.ucb .bvs:has-text("1 VS win")');ok(true,'win count badge on the profile card');await shot(H1,'06_profile_card_vs_wins');await H1.evaluate(()=>closePops());
  // ---- forfeit with confirmation ----
  await H1.evaluate(id=>vsChallenge(id,'Gus Gold'),s2);await H2.waitForSelector('.vsinv');await H2.tap('.vsinv .btn:has-text("Accept")');await H1.waitForSelector('#vsui');await V2.waitForSelector('#vsui');
- let asked='';H2.once('dialog',d=>asked=d.message());await H2.tap('#vsb');await H1.waitForSelector('.vsres.l.on.win .crown',{timeout:8000});ok(/forfeit/i.test(asked),'forfeit asks for confirmation: "'+asked+'"');
+ let asked='';H2.once('dialog',d=>asked=d.message());await H2.tap('#hmenub');await H2.tap('#hm-vsb');await H1.waitForSelector('.vsres.l.on.win .crown',{timeout:8000});ok(/forfeit/i.test(asked),'forfeit asks for confirmation: "'+asked+'"');
  ok(await V2.evaluate(()=>/lose/.test(document.querySelector('.vsres.l').className)),'forfeiting host shown as LOSE in own room');
  for(const p of [H1,H2])await p.waitForFunction(()=>!document.querySelector('#vsui'),null,{timeout:8000});ok(true,'forfeit returns to the normal layout');
  b=db.prepare('SELECT * FROM battles ORDER BY id DESC').get();ok(b.winner==id(u1)&&b.reason=='forfeit','forfeit recorded as a win for the other host');
  // ---- random match + disconnect ----
  const rw=await H3.evaluate(()=>new Promise(r=>sock.emit('vs-random',{},r)));ok(rw.waiting,'random: first host waits');
- await H1.tap('#vsb');await H1.waitForSelector('.vsrand small:has-text("waiting")');await H1.tap('#vsrand');
+ await H1.tap('#hmenub');await H1.tap('#hm-vsb');await H1.waitForSelector('.vsrand small:has-text("waiting")');await H1.tap('#vsrand');
  await H3.waitForSelector('#vsui');await H1.waitForSelector('#vsui');await oppVideo(H1);ok(true,'random match pairs with the waiting host');
  const dm3=await H2.evaluate(()=>new Promise(r=>sock.emit('vs-random',{},r)));ok(dm3.waiting,'a 3rd host waits instead of being double-matched');await H2.evaluate(()=>sock.emit('vs-cancel'));
  await H3.ctx.close();await H1.waitForSelector('.vsres.l.on.win',{timeout:8000});ok(true,'opponent disconnect: remaining host wins');
@@ -104,5 +104,5 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  ok(db.prepare('SELECT COUNT(*) n FROM battles WHERE winner=?').get(id(u1)).n==2,'Ava now has 2 wins');db.close();
  // hosts with guests can't battle
  await V1.evaluate(()=>sock.emit('guest-req'));await H1.waitForSelector('.greq .btn.pri');await H1.tap('.greq .btn.pri');await H1.waitForFunction(()=>document.querySelector('#stg').dataset.n=='2',null,{timeout:15000});
- await H1.tap('#vsb');await H1.waitForSelector('.toast:has-text("Remove your guests")');const g=await H1.evaluate(id=>new Promise(r=>sock.emit('vs-invite',{stream:id},r)),s2);ok(/guests/.test(g.error||''),'host with guests cannot start a battle');
+ await H1.tap('#hmenub');await H1.tap('#hm-vsb');await H1.waitForSelector('.toast:has-text("Remove your guests")');const g=await H1.evaluate(id=>new Promise(r=>sock.emit('vs-invite',{stream:id},r)),s2);ok(/guests/.test(g.error||''),'host with guests cannot start a battle');
  ok(!errs.length,'no page errors '+errs.join('|'));await br.close();cleanup();console.log('VS PASS')})().catch(e=>{console.error(e);cleanup();process.exit(1)});

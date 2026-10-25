@@ -87,7 +87,7 @@ function connect(){if(sock)return;api("/api/ice").then(r=>S.ice=r.iceServers).ca
  sock.on("err",t=>toast(t));
  sock.on("balance",b=>{S.coins=b.coins;S.diamonds=b.diamonds;if(S.me){S.me.coins=b.coins;S.me.diamonds=b.diamonds}$$("[data-coins]").forEach(e=>e.textContent=fmt(S.coins));$$("[data-dia]").forEach(e=>e.textContent=fmt(S.diamonds))});
  sock.on("streams",()=>{if(S.route=="live")loadLive()});
- sock.on("chat",m=>addChat(`${m.fan>=1&&m.fan<=3?`<i class="crn c${m.fan}" title="Top fan #${m.fan}">👑</i>`:""}<b class="cn" style="color:${nameColor(m.from)}">${esc(m.from)}</b> ${esc(m.text)}`,m.user));
+ sock.on("chat",m=>addChat(`${$(".lvx.tgx")?`<span class="cav2">${av({avatar:m.avatar,display_name:m.from,username:m.user},30)}</span><span class="cbody">`:""}${m.fan>=1&&m.fan<=3?`<i class="crn c${m.fan}" title="Top fan #${m.fan}">👑</i>`:""}<b class="cn" style="color:${nameColor(m.from)}">${esc(m.from)}</b>${$(".lvx.tgx")?"<br>":" "}${esc(m.text)}${$(".lvx.tgx")?"</span>":""}`,m.user,$(".lvx.tgx")?"cmsg":""));
  sock.on("joined",({user})=>{if(user.username==S.me.username)return;const J=S.lastJoin,now=Date.now();
   if(J&&now-J.t<4000&&J.el.isConnected){J.n++;J.t=now;J.el.querySelector(".jn").textContent=`and ${J.n} other${J.n>1?"s":""} joined`;return}
   addChat(`${av(user,22)} <b class="cn" style="color:${nameColor(user.display_name||user.username)}">${nm(user)}</b> <span class="jn">joined</span>`,user.username,"join");const c=$("#lchat");S.lastJoin=c?{t:now,n:0,el:c.lastElementChild}:null});
