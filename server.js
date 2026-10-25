@@ -96,7 +96,8 @@ const rankOf=tot=>{let i=0;while(i<RANKS.length-1&&tot>=RANKS[i+1][1])i++;const 
   const tlo=lo+t*step;return{name:RANKS[i][0],tier:['I','II','III','IV','V'][t],label:`${RANKS[i][0]} ${['I','II','III','IV','V'][t]}`,total:tot,pct:Math.round((tot-tlo)/step*100)}};
 const rankIdx=tot=>{let i=0;while(i<RANKS.length-1&&tot>=RANKS[i+1][1])i++;return i};
 // Streamer level perks (by diamonds received): avatar frame from Silver, 5 guest seats from Gold, rank-exclusive gifts (GIFTS lock "R:<rank>")
-const seatsFor=uid=>rankIdx(received(uid))>=2?5:3;
+const GUEST_SEATS=Math.max(1,+process.env.GUEST_SEATS||8); // no rank-based cap; mesh WebRTC bandwidth is the practical limit (see GUEST_SEATS)
+const seatsFor=uid=>GUEST_SEATS;
 const giftLockOk=(g,su,hostUid)=>{const L=g[5];if(L==null)return true;if(typeof L==='number')return levelOf(su.xp||0).n>=L;if(L==='VIP'||L==='SUB')return isPremium(su);
   if(typeof L==='string'&&L.startsWith('R:'))return hostUid!=null&&rankIdx(received(hostUid))>=RANKS.findIndex(x=>x[0]===L.slice(2));return false};
 const settingsOf=u=>{let s={};try{s=JSON.parse(u.settings||'{}')}catch(e){}return{dating_mode:true,hide_in_match:false,contact:'all',email_newsletter:true,email_pets:true,email_luv:true,email_friends:true,language:'English',units:'mi',private_profile:false,...s}};
@@ -508,7 +509,7 @@ const viewerList=r=>{const top=topGifters(r.id,r.uid).map(x=>x.id);return [...r.
 const pushViewers=r=>io.to('s'+r.id).emit('viewers',viewerList(r));
 const gm=(r,sid)=>{const m=r.gmute.get(sid)||{};return{host:!!m.host,self:!!m.self}};
 const guestList=r=>[...r.guests].map(([sid,u])=>({sid,user:pub(getUser(u)),mic:gm(r,sid)}));
-const MAX_GUESTS=3;const seats=r=>r.seats||(r.seats=seatsFor(r.uid)); // Gold+ streamers get 5 guest seats
+const seats=r=>r.seats||(r.seats=seatsFor(r.uid)); // Gold+ streamers get 5 guest seats
 const dropViewer=(r,sid)=>{r.viewers.delete(sid);r.vu.delete(sid);r.reqs?.delete(sid);r.invites.delete(sid);io.to(r.host).emit('viewer-left',{sid});if(r.vs){const o=r.vs.a===r?r.vs.b:r.vs.a;io.to(o.host).emit('viewer-left',{sid})}for(const g of r.guests.keys())io.to(g).emit('viewer-left',{sid});io.to('s'+r.id).emit('count',r.viewers.size);pushViewers(r)};
 io.on('connection',sock=>{
   const uid=sock.request.session?.uid;const user=uid&&getUser(uid);if(!user){sock.emit('err','Please log in');return sock.disconnect()}
@@ -583,7 +584,7 @@ io.on('connection',sock=>{
     if(r.cfg&&uid!==r.uid){const c=r.cfg;if(c.comment==='followers'&&!db.prepare('SELECT 1 FROM follows WHERE follower=? AND followee=?').get(uid,r.uid))return sock.emit('err','Only followers can comment in this stream');
       if(c.slow>0){r.lastMsg=r.lastMsg||new Map();const t=r.lastMsg.get(uid)||0;if(Date.now()-t<c.slow*1000)return sock.emit('err',`Slow mode: wait ${c.slow}s between messages`);r.lastMsg.set(uid,Date.now())}
       if(c.words?.length&&c.words.some(w=>text.toLowerCase().includes(w)))return sock.emit('err','Your message contains a word the host blocked')}
-    db.prepare('INSERT INTO chat(stream_id,user_id,text) VALUES(?,?,?)').run(r.id,uid,text);const msg={from:name(),user:user.username,text,fan:fanRank(r,uid)};
+    db.prepare('INSERT INTO chat(stream_id,user_id,text) VALUES(?,?,?)').run(r.id,uid,text);const msg={from:name(),user:user.username,avatar:user.avatar||null,text,fan:fanRank(r,uid)};
     for(const sid of [r.host,...r.viewers]){const s2=io.sockets.sockets.get(sid);const ru=s2?.request.session?.uid;if(s2&&!(ru&&ru!==uid&&isBlocked(ru,uid)))s2.emit('chat',msg)}});
   sock.on('gift',({k,to}={},cb)=>{if(typeof cb!=='function')cb=()=>{};if(!giftOk())return cb({error:'Slow down'});if(!Number.isInteger(k))return cb({error:'Bad gift'});const r=watching;const g=GIFTS[k];if(!r)return cb?.({error:'Not watching'});
     if(!g||!(g[2]>0)||!giftLockOk(g,getUser(uid),r.uid))return cb?.({error:'Gift locked'});if(r.uid===uid)return cb?.({error:"Can't gift yourself"});

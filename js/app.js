@@ -87,7 +87,7 @@ function connect(){if(sock)return;api("/api/ice").then(r=>S.ice=r.iceServers).ca
  sock.on("err",t=>toast(t));
  sock.on("balance",b=>{S.coins=b.coins;S.diamonds=b.diamonds;if(S.me){S.me.coins=b.coins;S.me.diamonds=b.diamonds}$$("[data-coins]").forEach(e=>e.textContent=fmt(S.coins));$$("[data-dia]").forEach(e=>e.textContent=fmt(S.diamonds))});
  sock.on("streams",()=>{if(S.route=="live")loadLive()});
- sock.on("chat",m=>addChat(`${m.fan>=1&&m.fan<=3?`<i class="crn c${m.fan}" title="Top fan #${m.fan}">👑</i>`:""}<b class="cn" style="color:${nameColor(m.from)}">${esc(m.from)}</b> ${esc(m.text)}`,m.user));
+ sock.on("chat",m=>addChat(`${$(".lvx.tgx")?`<span class="cav2">${av({avatar:m.avatar,display_name:m.from,username:m.user},30)}</span><span class="cbody">`:""}${m.fan>=1&&m.fan<=3?`<i class="crn c${m.fan}" title="Top fan #${m.fan}">👑</i>`:""}<b class="cn" style="color:${nameColor(m.from)}">${esc(m.from)}</b>${$(".lvx.tgx")?"<br>":" "}${esc(m.text)}${$(".lvx.tgx")?"</span>":""}`,m.user,$(".lvx.tgx")?"cmsg":""));
  sock.on("joined",({user})=>{if(user.username==S.me.username)return;const J=S.lastJoin,now=Date.now();
   if(J&&now-J.t<4000&&J.el.isConnected){J.n++;J.t=now;J.el.querySelector(".jn").textContent=`and ${J.n} other${J.n>1?"s":""} joined`;return}
   addChat(`${av(user,22)} <b class="cn" style="color:${nameColor(user.display_name||user.username)}">${nm(user)}</b> <span class="jn">joined</span>`,user.username,"join");const c=$("#lchat");S.lastJoin=c?{t:now,n:0,el:c.lastElementChild}:null});
@@ -187,11 +187,14 @@ async function onVSignal(from,data){if(data.sdp?.type=="offer"){S.vin[from]?.clo
 // ---- Multi-guest (Tagged-style split screen). Outbound = my camera to others (S.gout), inbound = a guest's camera to me (S.gin). ----
 S.gout={};S.gin={};S.gs={};S.vlist=[];
 const sidOf=n=>(S.vlist||[]).find(v=>v.user.username==n)?.sid;
-function tileHtml(sid,g){return `<div class="tl" data-sid="${esc(sid)}">${vids("",1)}<small class="tn2" data-u="${esc(g.user.username)}"><i class="mi"></i>${nm(g.user)}</small>${S.live||g.mine?`<button class="gmic" title="Mic" onclick="event.stopPropagation();micTap('${esc(sid)}')">🎤</button>`:""}${S.live||g.mine?`<button class="gx" title="${g.mine?"Leave":"Remove guest"}" onclick="event.stopPropagation();${g.mine?"guestLeave()":`sock.emit('guest-end',{sid:'${esc(sid)}'})`}">✕</button>`:""}</div>`}
+function tileHtml(sid,g){return `<div class="tl gt" data-sid="${esc(sid)}"${g.mine?"":` data-u="${esc(g.user.username)}"`}>${vids("",1)}${g.mine||S.live?"":`<button class="ggift" title="Gift ${esc(nm(g.user))}" aria-label="Send a gift" onclick="event.stopPropagation();giftSheet('${esc(g.user.username)}','${esc(nm(g.user))}')">🎁</button>`}<small class="tn2" data-u="${esc(g.user.username)}"><i class="mi"></i>${nm(g.user)}</small>${S.live||g.mine?`<button class="gmic" title="Mic" onclick="event.stopPropagation();micTap('${esc(sid)}')">🎤</button>`:""}${S.live||g.mine?`<button class="gx" title="${g.mine?"Leave":"Remove guest"}" onclick="event.stopPropagation();${g.mine?"guestLeave()":`sock.emit('guest-end',{sid:'${esc(sid)}'})`}">✕</button>`:""}</div>`}
+// Tagged-style grid: 1 full · 2 side by side · 3 host left + 2 stacked · 4 2x2 · 5-6 3x2 · 7-9 3x3 · then grows so tiles stay equal. Host always first.
+function gridDims(n){if(n<=1)return[1,1];if(n==2)return[2,1];if(n<=4)return[2,2];if(n<=6)return[3,2];if(n<=9)return[3,3];const c=Math.ceil(Math.sqrt(n));return[c,Math.ceil(n/c)]}
+function gridLayout(st,n){const[c,r]=gridDims(n);st.style.setProperty("--gc",c);st.style.setProperty("--gr",r);st.classList.add("tgrid");const h=st.querySelector(".tl.host");if(h)h.style.gridRow=n==3?"span 2":""}
 function drawTiles(){const st=$("#stg");if(!st)return;const ids=Object.keys(S.gs);
  $$("#stg .tl[data-sid],#stg .seat").forEach(t=>{if(t.classList.contains("seat")||!S.gs[t.dataset.sid])t.remove()});
  for(const sid of ids)if(![...st.children].some(t=>t.dataset.sid==sid)){st.insertAdjacentHTML("beforeend",tileHtml(sid,S.gs[sid]));const g=S.gs[sid];if(g.stream)setTileStream(sid,g.stream,g.mine);drawMic(sid)}
- const n=1+ids.length;if(n==3||(n==5&&(S.live?S.me.seats:S.view?.seats)>=5))st.insertAdjacentHTML("beforeend",`<div class="tl seat">${S.live?`<button class="seatb" onclick="viewerSheet()">＋<small>Invite</small></button>`:`<span>Empty seat</span>`}</div>`);
+ const n=1+ids.length;gridLayout(st,n);
  st.dataset.n=n;[...st.children].forEach((t,i)=>t.classList.toggle("r0",n==1||i<(n==2?1:2)));setTimeout(()=>$$("#stg video.vfg").forEach(fitVideo),60);updGuestUI()}
 function drawMic(sid){const g=S.gs[sid],t=[...$$("#stg .tl")].find(x=>x.dataset.sid==sid);if(!g||!t)return;const m=g.mic||{},off=m.host||m.self;
  t.classList.toggle("micoff",!!off);t.querySelector(".mi").textContent=off?"🔇 ":"";const b=t.querySelector(".gmic");if(b){b.textContent=off?"🔇":"🎤";b.classList.toggle("off",!!off)}}
@@ -210,7 +213,7 @@ async function onGSignal(from,data){const inbound=data.sdp?data.sdp.type=="offer
   await pc.setRemoteDescription(data.sdp);await pc.setLocalDescription(await pc.createAnswer());sock.emit("signal",{to:from,data:{g:1,gd:"a",sdp:pc.localDescription}})}
  else{const pc=inbound?S.gin[from]:S.gout[from];if(data.sdp)await pc?.setRemoteDescription(data.sdp);else if(data.ice)await pc?.addIceCandidate(data.ice).catch(()=>{})}}
 const gCount=()=>Object.keys(S.gs).length;
-function guestReq(){if(S.guestMine)return guestLeave();if(gCount()>=(S.view?.seats||3))return toast("All guest seats are taken");sock.emit("guest-req")}
+function guestReq(){if(S.guestMine)return guestLeave();if(gCount()>=(S.view?.seats||8))return toast("All guest seats are taken");sock.emit("guest-req")}
 function guestLeave(){sock.emit("guest-end");endGuestLocal(sock.id)}
 function updGuestUI(){const b=$("#gbtn");if(b){b.classList.toggle("on",!!S.guestMine||!!S.guestPending);b.title=S.guestMine?"Leave guest spot":"Request to join as guest";b.innerHTML=S.guestMine?"✕":S.guestPending?"⏳":(b.classList.contains("ti")&&window.IC?IC.guest:"👤+")}
  const k=$("#gkick");if(k)k.style.display=gCount()&&S.live?"":"none"}

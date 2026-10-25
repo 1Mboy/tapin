@@ -40,16 +40,17 @@ Object.assign(IC,{bulb:SV('<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3
 const sysMsgs=()=>`<p class="sys warn">${IC.warn}<span>Let's keep Live fun! <em>Nudity</em> or <em>obscene behavior</em> will result in <em>account deletion</em>.</span></p><p class="sys mod">${IC.oshield}<span><em>Modbot</em> is watching to keep this stream clean!</span></p><p class="sys tip">${IC.obulb}<span>Don't forget to <em>interact</em> with your viewers! They're looking for you to <em>entertain</em>!</span></p>`;
 const sysWarn=()=>`<p class="sys warn">${IC.warn}<span>Let's keep Live fun! <em>Nudity</em> or <em>obscene behavior</em> will result in <em>account deletion</em>.</span></p><p class="sys mod">${IC.oshield}<span><em>Modbot</em> is watching to keep this stream clean!</span></p>`;
 function hostPhone(stage){const d=S.me.diamonds||0,lv=S.me.xp?.n||S.me.level||1;setTimeout(()=>{shoutListen();fxReapply();gameListen();hostTapChat();drawGame()},0);
- return `<div class="lvx bc tgd">${stage}
+ return `<div class="lvx bc tgd tgx">${stage}
  <div class="lx-top"><div class="hcard"><div class="lx-pill">${av(S.me,36)}<i class="odot"></i><span><b>${nm(S.me)}</b><small class="lvl2">${IC.crown} Lv ${lv} · <i data-st="diamonds">${fmt(d)}</i> pts</small></span></div>
    <div class="hrow"><span>${IC.dia} <i data-st="stream_diamonds">0</i></span><span>${IC.hrt} <i data-st="hearts">0</i></span><span class="lx-cnt" role="button" onclick="viewerSheet()">${IC.person} <i data-st="viewers">0</i></span><span class="ghide"><i data-st="stream_gifts">0</i></span></div></div>
-  <span class="sp"></span><div class="lx-vw" id="vav"></div><button class="tx" id="endx" onclick="endAsk()" title="End stream" aria-label="End stream">${IC.x}</button></div>
+  <span class="sp"></span><div class="lx-vw" id="vav" hidden></div><button class="tx" onclick="moreDrawer()" title="Minimize" aria-label="More">${IC.chev}</button><button class="tx" id="endx" onclick="endAsk()" title="End stream" aria-label="End stream">${IC.x}</button></div>
  <button class="edgeL" id="diab" onclick="diaInfo()" title="Diamonds" aria-label="Diamonds">${IC.diaplus}</button>
  <button class="edgeR" id="gameb" onclick="gameTab()">Ask your viewers to play!</button>
  <div class="shoutb" id="shoutb"></div><div class="ngbar" id="ngbar" hidden></div>
  <div class="lx-chat" id="lchat">${sysMsgs()}</div>
  <div class="cinb" id="cinb" hidden><input id="ci" placeholder="Chat with viewers…" maxlength="300" enterkeyhint="send" onkeydown="event.key=='Enter'&&sendChat()" onblur="setTimeout(closeChatBar,180)"><button class="cis" onmousedown="event.preventDefault()" onclick="sendChat()">Send</button></div>
- <div class="tbar" id="tbar">
+ <div class="vbar2 tbar3 hbar3"><div class="cpill" role="button" onclick="openChat()"><span class="cph">Chat with viewers…</span></div><button class="ti sm" id="hmenub" onclick="hostMenu()" title="Menu" aria-label="Menu">${IC.menu}<i class="rq" id="rqn2"></i></button><button class="ti hb" onclick="viewerSheet()" title="Viewers" aria-label="Viewers">${IC.people}</button><button class="ti big gbtn" onclick="diaInfo()" title="Gifts & diamonds" aria-label="Gifts and diamonds">${IC.gift}</button></div>
+ <div class="tbar" id="tbar" hidden>
   <button class="ti" id="tipb" onclick="tipsSheet()" aria-label="Tips">${IC.bulb}</button>
   <button class="ti vsb" id="vsb" onclick="vsMenu()" title="VS battle" aria-label="VS battle">${IC.vs}</button>
   <button class="ti" id="addg" onclick="addGuestSheet()" aria-label="Add a Guest">${IC.rings}<i class="rq" id="rqn"></i></button>
@@ -58,6 +59,13 @@ function hostPhone(stage){const d=S.me.diamonds||0,lv=S.me.xp?.n||S.me.level||1;
   <button class="ti" id="fxb" onclick="fxSheet()" aria-label="Filters, beauty and masks">${IC.spark}</button>
   <button class="ti" id="moreb" onclick="moreDrawer()" aria-label="More">${IC.more}</button></div>
  <div id="greqs" hidden></div><a id="gkick" hidden></a></div>`}
+function hostMenu(){const n=$("#rqn")?.textContent||"";sheet(`<div class="shd"><b>Live tools</b><button class="x" onclick="closePops()">✕</button></div><div class="pm">
+ <a id="hm-addg" onclick="closePops();addGuestSheet()">${IC.rings} Add a guest${n?` <i class="rq">${n}</i>`:""}</a><a id="hm-vsb" onclick="closePops();vsMenu()">${IC.vs} VS battle</a><a id="hm-fxb" onclick="closePops();fxSheet()">${IC.spark} Filters, beauty &amp; masks</a>
+ <a id="hm-megb" onclick="closePops();megSheet()">${IC.meg} Megaphone shout</a><a id="hm-vwb" onclick="closePops();viewerSheet()">${IC.people} Viewers</a><a id="hm-shb" onclick="closePops();shareLive()">${IC.share} Share stream</a>
+ <a id="hm-tipb" onclick="closePops();tipsSheet()">${IC.bulb} Tips</a><a id="hm-moreb" onclick="closePops();moreDrawer()">${IC.more} More (settings, flip, mute…)</a></div>`,"tmenu")}
+setInterval(()=>{const a=$("#rqn"),b=$("#rqn2");if(a&&b&&b.textContent!==a.textContent)b.textContent=a.textContent},800);
+const kfmt=n=>{n=+n||0;return n>=1e4?(n/1e3).toFixed(n>=1e5?0:1).replace(/\.0$/,"")+"K":n.toLocaleString()};
+Object.assign(IC,{menu:SV('<path d="M4 7h16M4 12h16M4 17h16"/>',26,'stroke-width="2.4"'),chev:SV('<path d="M6 9l6 6 6-6"/>',24,'stroke-width="2.6"'),eye:SV('<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/>',15)});
 function openChat(){const b=$("#cinb");if(!b)return $("#ci")?.focus();b.hidden=false;$(".lvx")?.classList.add("chatting");$("#ci").focus()}
 function closeChatBar(){const b=$("#cinb");if(!b||b.hidden)return;if(document.activeElement==$("#ci"))$("#ci").blur();b.hidden=true;$(".lvx")?.classList.remove("chatting")}
 // host has no chat icon in Tagged's bar: tapping empty video opens the keyboard bar (mentions open it too)
@@ -115,17 +123,22 @@ function blastSheet(){sheet(`<div class="cfm"><h3>Send Blast</h3><p>Notify all y
 function descSheet(){sheet(`<div class="shd"><b>Edit Description</b><button class="x" onclick="closePops()">✕</button></div><div class="pad"><input id="descin" maxlength="80" value="${esc(S.live?.title||"")}" placeholder="Add description or tag your stream"><button class="btn teal full" id="descsave" style="margin-top:10px" onclick="sock.emit('room-title',{title:$('#descin').value},r=>{if(r.error)return toast(r.error);S.live.title=$('#descin').value.trim();closePops();toast('Description updated')})">Save</button></div>`)}
 // ---------- Viewer phone layout (Tagged viewer: chat pill · guest · share · gift · heart) ----------
 function viewerPhone(u,r,st,stage){setTimeout(()=>{shoutListen();gameListen();tapHearts();viewerGame()},0);
- return `<div class="lvx tgd vw2">${stage}
- <div class="lx-top"><div class="lx-pill"><a class="tapav" data-u="${esc(u.username)}">${av(u,34)}</a><span><b>${nm(u)}</b><small>${IC.dia} <i data-st="diamonds">${fmt(st.diamonds)}</i></small></span><button id="favb" class="fv ${r.following?"on":""}" onclick="favToggle('${esc(u.username)}')" title="Favorite">${r.following?"★":"+"}</button></div>
-  <span class="sp"></span><div class="lx-fans" id="topg" onclick="fansSheet()">${fanAvs(r.top)}</div><div class="lx-vw" id="vav"></div><span class="lx-cnt" role="button" onclick="viewerSheet()">👁 <i data-st="viewers" data-v="${st.viewers}">${fmt(st.viewers)}</i></span><button class="tx" onclick="viewerMore()" title="More" aria-label="More">${IC.more}</button><button class="tx" onclick="go('#/live')" title="Exit" aria-label="Exit">${IC.x}</button></div>
- <div class="hstats vst2"><span>♥ <i data-st="hearts">${fmt(st.hearts)}</i></span></div>
+ return `<div class="lvx tgd vw2 tgx">${stage}
+ <div class="lx-top"><div class="lx-pill tpill"><a class="tapav" data-u="${esc(u.username)}">${av(u,34)}</a><span><b>${nm(u)}</b><small><i class="tstar">★</i> <i data-st="fans">${fmt(st.fans||0)}</i></small></span><button id="favb" class="fv ${r.following?"on":""}" onclick="favToggle('${esc(u.username)}')" title="Favorite" aria-label="Follow">${r.following?"★":"+"}</button></div>
+  <span class="sp"></span><button class="tx" onclick="go('#/live')" title="Minimize" aria-label="Minimize">${IC.chev}</button><button class="tx" onclick="go('#/live')" title="Exit" aria-label="Exit">${IC.x}</button></div>
+ <div class="tstats"><span>${IC.dia} <i data-st="diamonds">${kfmt(st.diamonds)}</i></span><span class="lx-cnt" role="button" onclick="viewerSheet()">${IC.eye} <i data-st="viewers" data-v="${st.viewers}">${kfmt(st.viewers)}</i></span><span>♥ <i data-st="hearts">${kfmt(st.hearts)}</i></span></div>
+ <div class="lx-fans" id="topg" onclick="fansSheet()">${fanAvs(r.top)}</div><div class="lx-vw" id="vav" hidden></div>
  <div class="shoutb" id="shoutb"></div><button class="edgeR vg" id="vgame" hidden></button>
  <div class="lx-chat" id="lchat">${sysWarn()}<p class="sys"><span>Welcome to ${nm(u)}'s stream! Be <em>kind</em>.</span></p></div>
- <div class="vbar2"><div class="cpill">${IC.chat}<input id="ci" placeholder="Say something…" maxlength="300" enterkeyhint="send" onkeydown="event.key=='Enter'&&sendChat()"></div>
-  <button class="ti sm" id="gbtn" onclick="guestReq()" title="Join as guest" aria-label="Join as guest">${IC.guest}</button>
-  <button class="ti sm" id="shb" onclick="shareLive()" title="Share" aria-label="Share">${IC.share}</button>
-  <button class="ti big gbtn" id="giftb" onclick="giftSheet()" title="Send a gift" aria-label="Send a gift">${IC.gift}</button>
-  <button class="ti hb" id="hrtb" onclick="sendHeart(event)" title="Like" aria-label="Send a heart">${IC.heart}</button></div></div>`}
+ <div class="vbar2 tbar3"><div class="cpill"><input id="ci" placeholder="Say something…" maxlength="300" enterkeyhint="send" onkeydown="event.key=='Enter'&&sendChat()"></div>
+  <button class="ti sm" id="menub" onclick="viewerMenu()" title="Menu" aria-label="Menu">${IC.menu}</button>
+  <button class="ti hb" id="hrtb" onclick="sendHeart(event)" title="Like" aria-label="Send a heart">${IC.heart}</button>
+  <button class="ti big gbtn" id="giftb" onclick="giftSheet()" title="Send a gift" aria-label="Send a gift">${IC.gift}</button></div></div>`}
+function viewerMenu(){const v=S.view;sheet(`<div class="shd"><b>Menu</b><button class="x" onclick="closePops()">✕</button></div><div class="pm">
+ <a id="gbtn" onclick="closePops();guestReq()">${IC.guest} ${S.guestMine?"Leave guest spot":"Request to join as guest"}</a><a onclick="closePops();shareLive()">${IC.share} Share stream</a>
+ <a onclick="closePops();viewerSheet()">👁 Viewers (${fmt(v?.stats?.viewers||$('[data-st=viewers]')?.dataset.v||0)})</a><a onclick="closePops();fansSheet()">🏆 Top gifters</a>
+ <a onclick="closePops();xpInfo()">⭐ My level (Lv ${S.me.xp?.n||1})</a><a onclick="closePops();${S.me.premium?"S.gtab='Exclusive';S.gpage=0;giftSheet()":"go('#/premium')"}">🚀 VIP gifts</a>
+ <a onclick="closePops();nextStream(1)">⌄ Next stream</a><a onclick="closePops();reportSheet(null,S.view?.id)">⚠ Report stream</a></div>`,"tmenu")}
 function sendHeart(e){sock.emit("heart");if(e&&e.clientX!=null)burstHeart(e.clientX,e.clientY)}
 function burstHeart(x,y){const h=document.createElement("i");h.className="tapheart";h.style.left=x+"px";h.style.top=y+"px";h.style.setProperty("--dx",(Math.random()*60-30)+"px");h.innerHTML=IC.heart;document.body.append(h);setTimeout(()=>h.remove(),1300)}
 // viewers tap anywhere on the video to send hearts (Tagged/Bigo behaviour); taps on names, buttons, chat and sheets are ignored

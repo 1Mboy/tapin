@@ -38,7 +38,7 @@ fs.mkdirSync(OUT,{recursive:true});const log=(...a)=>console.log('✔',...a);con
  await A.click('.gbtn');await A.waitForSelector('.gsheet .gf:not(.lk)');await A.click('.gsheet .gf:not(.lk)');await B.waitForSelector('#lchat p:has-text("sent")',{timeout:15000});ok(true,'gift delivered (test coins)');
  await A.mouse.click(10,10);await A.waitForTimeout(300);if(await A.$('.sheet-bg'))await A.click('.sheet-bg',{position:{x:10,y:10}});
  // co-host
- await A.click('#gbtn');await B.waitForSelector('.greq');await shot(B,'cohost_request');await B.click('.greq .btn.pri');
+ await A.click('#menub');await A.click('#gbtn');await B.waitForSelector('.greq');await shot(B,'cohost_request');await B.click('.greq .btn.pri');
  await B.waitForFunction(()=>{const v=document.querySelector('#stg .tl[data-sid] video.vfg');return v&&v.videoWidth>0},null,{timeout:30000});ok(true,'host receives guest video over WebRTC');
  await A.waitForSelector('#stg[data-n="2"]');await A.waitForFunction(()=>document.querySelector('#stg .tl[data-sid] video.vfg').videoWidth>0,null,{timeout:15000});ok(true,'guest sees own camera preview');await shot(A,'cohost_guest_view');await shot(B,'cohost_host_view');
  const ice=await A.evaluate(()=>api('/api/ice').then(r=>r.iceServers.some(s=>JSON.stringify(s.urls).includes('turn'))));log('TURN servers offered: '+ice);
