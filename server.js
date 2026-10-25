@@ -429,7 +429,7 @@ function deleteUser(id){const u=getUser(id);if(!u)return 0;const q=(sql,...a)=>d
   for(const r of rooms.values())if(r.uid===id)endRoom(r);return 1}
 app.delete('/api/me',authLimit,auth,async(req,res)=>{const pw=req.body?.password;if(typeof pw!=='string'||!await bcrypt.compare(pw,req.user.pass))return res.status(403).json({error:'Password is wrong'});
   deleteUser(req.user.id);req.session.destroy(()=>{res.clearCookie('tapin.sid');res.json({ok:1})})});
-if(fs.existsSync(path.join(__dirname,'admin_tmp.js')))require('./admin_tmp.js')({app,db,DATA_DIR,deleteUser});
+if(process.env.ADMIN_TOKEN&&fs.existsSync(path.join(__dirname,'admin_tmp.js')))require('./admin_tmp.js')({app,db,DATA_DIR,deleteUser});
 require('./tagged_api.js')({app,db,auth,pub,me,getUser,limiter,ageOf,levelOf,rankOf,settingsOf,received,isMatch,pair,get rooms(){return rooms},get io(){return io},notify:(...a)=>notify(...a),friendState:(...a)=>friendState(...a),isBlocked:(...a)=>isBlocked(...a),gq,ageOk,distOk,distLabel,isPremium,ADMIN_ID});
 app.use('/uploads',express.static(UPLOAD_DIR,{maxAge:'7d',setHeaders:r=>r.set('X-Content-Type-Options','nosniff')}));
 app.use('/vendor/leaflet',express.static(path.join(__dirname,'node_modules/leaflet/dist'),{maxAge:'30d'}));
