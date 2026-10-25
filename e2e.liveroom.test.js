@@ -23,7 +23,7 @@ fs.mkdirSync(OUT,{recursive:true});const ok=(c,m)=>{if(!c)throw new Error('FAIL:
    const vw=v.videoWidth,vh=v.videoHeight,sc=Math.max(b.width/vw,b.height/vh);return{n:st.dataset.n,tiles:st.querySelectorAll('.tl').length,fit:getComputedStyle(v).objectFit,
    x:b.left,y:b.top,w:b.width,h:b.height,iw:innerWidth,ih:innerHeight,pw:vw*sc,ph:vh*sc}},sel);
   ok(r.n=='1'&&r.tiles==1,who+': solo stage has exactly 1 tile (no empty seat counted)');
-  ok(r.fit=='cover'&&r.x<=3&&r.w>=r.iw-5&&Math.abs(r.y/r.ih-0.13)<0.02&&Math.abs((r.y+r.h)/r.ih-0.59)<0.02&&r.pw>=r.w-1&&r.ph>=r.h-1,who+': solo video fills the Tagged box (13%..59%, full width, cover) '+JSON.stringify(r))};
+  ok(r.fit=='cover'&&r.x<=3&&r.w>=r.iw-5&&r.y<=1&&Math.abs(r.h-r.ih)<2&&r.pw>=r.w-1&&r.ph>=r.h-1,who+': solo video fills the FULL screen edge to edge (cover) '+JSON.stringify(r))};
  await solo(H,'#bv','host');await H.screenshot({path:FSO+'/01_solo_host.png'});console.log('  📸',FSO+'/01_solo_host.png');
  const mirror=await H.evaluate(()=>getComputedStyle(document.querySelector('#bv')).transform);ok(mirror.includes('-1'),'host own preview is mirrored');
  const join=async(p)=>{await p.goto(URL+'#/live/view/'+sid);await p.waitForFunction(()=>{const v=document.querySelector('#rv');return v&&v.videoWidth>0},null,{timeout:30000})};

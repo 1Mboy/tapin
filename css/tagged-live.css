@@ -79,3 +79,29 @@
 }
 @media (max-width:820px){.lvx.tgx.bc .hcard{max-width:72%;flex:none}.lvx.tgx.bc .hcard .tpill{width:max-content;max-width:100%}.lvx.tgx.bc .tpill>span{min-width:0}.lvx.tgx.bc .tpill b{white-space:nowrap}}
 @media (max-width:820px){.lvx.tgx.bc .hcard{max-width:75%!important;width:max-content}.lvx.tgx.bc .hcard .lx-pill.tpill{max-width:100%!important;width:max-content!important}.lvx.tgx.bc .tpill small{white-space:nowrap}}
+/* v8: Tagged SOLO layout — video full-screen behind everything, chat overlaid, host icon-only bar */
+.lvx .sbar,.lvx .ttip{display:none}
+@media (max-width:820px){
+ .lvx.tgx.solo:not(.vsmode){background:#000}
+ .lvx.tgx.solo:not(.vsmode) .stg:not([data-vs="1"]){top:0!important;height:100dvh!important;inset:0!important;padding:0;gap:0}
+ .lvx.tgx.solo:not(.vsmode) .stg .tl.host{border:0!important;border-radius:0}
+ .lvx.tgx.solo:not(.vsmode) .lx-top,.lvx.tgx.solo:not(.vsmode) .tstats,.lvx.tgx.solo:not(.vsmode) .hrow{text-shadow:0 1px 3px rgba(0,0,0,.8)}
+ .lvx.tgx.solo:not(.vsmode) .lx-chat{-webkit-mask-image:linear-gradient(transparent,#000 18%);mask-image:linear-gradient(transparent,#000 18%);text-shadow:0 1px 3px rgba(0,0,0,.9);max-height:34dvh}
+ .lvx.tgx.solo:not(.vsmode) .lx-chat p.cmsg{color:#fff}
+ .lvx.tgx.solo:not(.vsmode) .tbar3{background:linear-gradient(transparent,rgba(0,0,0,.55))!important}
+ .lvx.tgx.solo:not(.vsmode) .tbar3 .cpill{background:rgba(40,44,52,.75)}
+ .lvx.tgx.solo:not(.vsmode) .lx-fans{top:calc(env(safe-area-inset-top) + 92px)}
+ /* host alone: icon-only evenly spaced row, no input */
+ .lvx.tgx.bc.solo:not(.vsmode) .hbar3{display:none!important}
+ .lvx.tgx.bc.solo:not(.vsmode) .sbar{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);justify-items:center;align-items:center;position:absolute;left:0;right:0;bottom:0;z-index:7;padding:8px 0 calc(12px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.45))}
+ .lvx.tgx.bc.solo .sbar .ti{width:44px;height:44px;background:none!important;border:0!important;box-shadow:none;color:#fff;margin:0;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7));position:relative}
+ .lvx.tgx.bc.solo .sbar .ti svg{width:26px;height:26px}
+ .lvx.tgx.bc.solo .sbar .ti.vsb path:first-child{stroke:#7fb9ff}.lvx.tgx.bc.solo .sbar .ti.vsb path:last-child{stroke:#f5d36b}
+ .lvx.tgx.bc.solo .sbar .rq{position:absolute;top:0;right:0}
+ .lvx.tgx.bc.solo:not(.vsmode) .lx-chat{bottom:calc(68px + env(safe-area-inset-bottom))}
+ .lvx.tgx.bc.solo:not(.vsmode) .ttip{display:grid;place-items:center;position:absolute;left:12px;top:calc(env(safe-area-inset-top) + 76px);z-index:7;width:30px;height:30px;border-radius:50%;border:0;padding:0;background:#19c3b4;color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+ .lvx.tgx.bc.solo .ttip svg{width:15px;height:15px}.lvx.tgx.bc.solo .ttip svg path{fill:#fff}
+ .lvx.tgx.bc.solo:not(.vsmode) .edgeL{display:none!important}
+ .lvx.tgx.bc.solo:not(.vsmode) .edgeR{bottom:calc(150px + env(safe-area-inset-bottom))!important}
+ .lvx.tgx.bc.solo:not(.vsmode) .ngbar{bottom:calc(70px + env(safe-area-inset-bottom))}
+}
