@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node coinpack.test.js && node run-e2e.js && VIEWER=chromium node e2e.fullbatch.test.js",
+    "test": "node backups.test.js && node coinpack.test.js && node run-e2e.js && VIEWER=chromium node e2e.fullbatch.test.js",
     "start": "node server.js",
     "test:e2e": "node run-e2e.js"
   },

@@ -638,4 +638,7 @@ io.on('connection',sock=>{
   sock.on('disconnect',()=>{const n=(online.get(uid)||1)-1;if(n)online.set(uid,n);else online.delete(uid);if(hosting)endRoom(hosting);if(watching){endGuest(watching,sock.id);dropViewer(watching,sock.id)}});
 });
 const stop=()=>{io.close();server.close(()=>{db.close();process.exit(0)});setTimeout(()=>process.exit(0),5e3)};process.on('SIGTERM',stop);process.on('SIGINT',stop);
-server.listen(PORT,HOST,()=>console.log(`Tap.in on http://${HOST}:${PORT} env=${PROD?'production':'dev'} demo=${DEMO} payments=${!!stripe} turn=${!!process.env.TURN_URL} data=${DATA_DIR}`));
+const TURN_MODE=process.env.CF_TURN_KEY_ID&&process.env.CF_TURN_API_TOKEN?'cloudflare':process.env.METERED_DOMAIN&&process.env.METERED_API_KEY?'metered':process.env.TURN_URL?'static':'none';
+if(!/^(0|false|no)$/i.test(process.env.BACKUPS||''))require('./backups').schedule(db,path.join(DATA_DIR,'backups'),{keep:+process.env.BACKUP_KEEP||14});
+server.listen(PORT,HOST,()=>{console.log(`Tap.in on http://${HOST}:${PORT} env=${PROD?'production':'dev'} demo=${DEMO} payments=${!!stripe} turn=${TURN_MODE!=='none'} turn_mode=${TURN_MODE} data=${DATA_DIR}`);
+  if(TURN_MODE==='cloudflare'||TURN_MODE==='metered')dynamicIce().then(l=>console.log(`[turn] ${TURN_MODE} credentials ${l?'OK ('+l.length+' servers)':'FAILED'}`))});
