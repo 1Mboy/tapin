@@ -354,14 +354,14 @@ function moreTools(id){sheet(`<div class="shd grad"><b>More Tools</b><button cla
 const topHtml=t=>`<div class="tgh"><b>Top Gifters</b><a onclick="go('#/live/tools/gifters')">›</a></div>${[0,1,2].map(i=>{const u=t?.[i];return `<div class="tga">${u?`<a href="#/u/${esc(u.username)}">${av(u,38)}</a><i class="tr t${i}">${i+1}</i><small>💎${fmt(u.diamonds)}</small>`:`<span class="av ph" style="width:38px;height:38px">?</span><i class="tr t${i}">${i+1}</i>`}</div>`}).join("")}`;
 // ---- Camera: widest field of view, no digital zoom, no forced crop ----
 const portraitDev=()=>matchMedia("(orientation: portrait)").matches&&matchMedia("(pointer: coarse)").matches;
-const camVideo=face=>({facingMode:{ideal:face||"user"},width:{ideal:portraitDev()?720:1280},height:{ideal:portraitDev()?1280:720},resizeMode:{ideal:"none"}});
+const camVideo=face=>({facingMode:{ideal:face||"user"},width:{ideal:portraitDev()?720:1280},height:{ideal:portraitDev()?1280:720},aspectRatio:{ideal:portraitDev()?9/16:16/9},resizeMode:{ideal:"none"}});
 async function noZoom(track){try{const c=track?.getCapabilities?.();if(c?.zoom)await track.applyConstraints({advanced:[{zoom:c.zoom.min}]})}catch(e){}}
 async function getCam(face,audio=true){let st;try{st=await navigator.mediaDevices.getUserMedia({video:camVideo(face),audio})}catch(e){if(e.name=="OverconstrainedError")st=await navigator.mediaDevices.getUserMedia({video:{facingMode:face||"user"},audio});else throw e}
  await noZoom(st.getVideoTracks()[0]);return st}
 // Cover only when the video and its box have nearly the same shape; otherwise show the whole frame over a blurred copy.
 function fitVideo(v){if(!v||!v.videoWidth)return;const box=v.parentElement,cw=box.clientWidth,ch=box.clientHeight;if(!cw||!ch)return;const va=v.videoWidth/v.videoHeight,ca=cw/ch,r=Math.max(va,ca)/Math.min(va,ca);
  // Live-room tiles (#stg) always cover edge-to-edge, Tagged-style; letterbox only elsewhere (e.g. desktop previews).
- const land=va>1.2&&ca<0.8;const contain=(!box.closest(".stg")&&r>1.15)||(land&&r>1.9);box.classList.toggle("fitc",contain);v.style.objectFit=contain?"contain":"cover";box.dataset.fit=contain?"contain":"cover"}
+ const contain=!box.closest(".stg")&&r>1.15;box.classList.toggle("fitc",contain);v.style.objectFit=contain?"contain":"cover";box.dataset.fit=contain?"contain":"cover"}
 function attachV(v,stream,mirror){if(!v)return;v.srcObject=stream;const bg=v.parentElement.querySelector(":scope>.vbg");if(bg){bg.srcObject=stream;bg.muted=true;bg.play?.().catch(()=>{})}
  v.parentElement.classList.toggle("mirror",!!mirror);v.classList.add("on");const f=()=>fitVideo(v);v.onloadedmetadata=f;v.onresize=f;setTimeout(f,300);v.play?.().catch(()=>{v.muted=true;v.play().catch(()=>{});if(v.dataset.remote)unmuteBtn(v)})}
 // iPhone Safari blocks autoplay with sound: start muted, then one tap anywhere (or the button) turns sound on.
@@ -423,8 +423,8 @@ function noCoins(){sheet(`<div class="shd"><b>Not enough coins</b><button class=
 async function golive(){setNav("broadcast","Go Live");connect();if(S.live)return broadcaster();V(preLiveHtml());
  try{S.stream=await getCam("user");S.face="user";S.cam=S.stream.getVideoTracks()[0];attachV($("#pv"),S.stream,true);$("#glp").remove()}catch(e){$("#glp").innerHTML="⚠️<small>Camera unavailable: "+esc(e.message)+"</small>"}}
 async function startLive(){for(let i=0;i<25&&!S.stream&&$("#glp")&&!/unavailable/.test($("#glp").textContent);i++)await new Promise(r=>setTimeout(r,200));if(!S.stream)return toast("Camera required to go live");$("#glb").disabled=true;
- if(window.faceCheck&&await faceCheck()===false){faceToast();$("#glb").disabled=false;return}S.game=null;S.gstate=S.ndstate=null;
- const title=$("#gt").value.trim(),tags=$("#gtg")?.value||"";sock.emit("golive",{title,tags},r=>{S.live={id:r.id,title,tags,t0:Date.now()};broadcaster();faceToast()})}
+ S.game=null;S.gstate=S.ndstate=null;
+ const title=$("#gt").value.trim(),tags=$("#gtg")?.value||"";sock.emit("golive",{title,tags},r=>{S.live={id:r.id,title,tags,t0:Date.now()};broadcaster()})}
 function broadcaster(){const L=S.live,ph=isPhone(),stage=`${stg(vids("bv",1),S.me)}<div class="hearts"></div>`;
  const ctl=`<button class="lbtn" onclick="flipCam()" title="Flip camera">🔄</button><button class="lbtn" id="micb" onclick="toggleMic(this)" title="Mute">🎤</button>`;
  if(ph)V(hostPhone(stage));

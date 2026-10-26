@@ -126,5 +126,5 @@
  .lvx.tgx .lx-chat p.sys em{color:#ffd400!important;font-weight:800}
  .lvx.tgx .lx-top{z-index:9}
 }
-.tl.fitc>video.vbg{filter:blur(16px) brightness(.6);transform:scale(1.15)}
-.lvx.tgd .stg .tl.fitc>video.vfg,.lvx.tgx .stg .tl.fitc>video.vfg{object-fit:contain!important}
+/* v11: live-room video ALWAYS covers its tile; solo = full screen, never letterboxed */
+.stg .tl>video.vfg,.stg .tl.fitc>video.vfg{object-fit:cover!important;width:100%!important;height:100%!important;inset:0!important;top:0!important;max-height:none!important}
