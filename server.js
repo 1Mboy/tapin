@@ -16,7 +16,7 @@ const DEMO=/^(1|true|yes)$/i.test(process.env.DEMO||'');
 const DATA_DIR=process.env.DATA_DIR||path.join(__dirname,'data');
 const UPLOAD_DIR=path.join(DATA_DIR,'uploads');fs.mkdirSync(UPLOAD_DIR,{recursive:true});
 const STRIPE_KEY=process.env.STRIPE_SECRET_KEY,STRIPE_WH=process.env.STRIPE_WEBHOOK_SECRET;
-const stripe=STRIPE_KEY&&STRIPE_WH?require('stripe')(STRIPE_KEY):null;
+const SS=require('./stripe_sessions');const stripe=STRIPE_KEY&&STRIPE_WH?require('stripe')(STRIPE_KEY):null;
 const STRIPE_LIVE=/^(1|true|yes)$/i.test(process.env.STRIPE_LIVE||''); // false: Stripe buttons hidden and Stripe checkout refused
 const paypal=require('./paypal');
 const BASE_URL=ORIGINS[0]||process.env.PUBLIC_URL||`http://${HOST}:${PORT}`;
@@ -247,9 +247,7 @@ app.get('/api/streams',(req,res)=>res.json([...rooms.values()].filter(r=>!(req.s
 
 app.post('/api/checkout',moneyLimit,auth,async(req,res)=>{if(!stripe||!STRIPE_LIVE)return res.status(503).json({error:'Payments not connected yet'});
   const p=Number.isInteger(req.body?.pack)&&COIN_PACKAGES[req.body.pack];if(!p)return res.status(400).json({error:'Unknown pack'});
-  try{const s=await stripe.checkout.sessions.create({mode:'payment',client_reference_id:String(req.user.id),
-    line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:Math.round(p.p*100),product_data:{name:`${p.c.toLocaleString()} Tap.in coins`}}}],
-    payment_method_types:['card'],success_url:BASE_URL+'/?paid=1&session_id={CHECKOUT_SESSION_ID}',cancel_url:BASE_URL+'/?paid=0'});
+  try{const s=await stripe.checkout.sessions.create(SS.coinSession(p,req.user.id,BASE_URL));
     db.prepare("INSERT INTO purchases(user_id,stripe_session,coins,usd,status) VALUES(?,?,?,?,'pending')").run(req.user.id,s.id,p.c,p.p);res.json({url:s.url})}
   catch(e){res.status(502).json({error:'Stripe error: '+e.message})}});
 // Success-page fallback: verify the session with Stripe server-side; idempotent via creditStripe.
@@ -259,9 +257,7 @@ app.post('/api/checkout/confirm',moneyLimit,auth,async(req,res)=>{if(!stripe)ret
   try{const s=await stripe.checkout.sessions.retrieve(id);const p=creditStripe(s)||db.prepare('SELECT status FROM purchases WHERE stripe_session=?').get(id);res.json({status:p?.status||'pending',me:me(getUser(req.user.id))})}
   catch(e){res.status(502).json({error:'Stripe error: '+e.message})}});
 app.post('/api/checkout/premium',moneyLimit,auth,async(req,res)=>{if(!stripe||!STRIPE_LIVE)return res.status(503).json({error:'Payments not connected yet'});
-  try{const s=await stripe.checkout.sessions.create({mode:'payment',client_reference_id:String(req.user.id),
-    line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:Math.round(PREMIUM_USD*100),product_data:{name:'Tap.in Premium — 30 days'}}}],
-    payment_method_types:['card'],success_url:BASE_URL+'/?paid=premium&session_id={CHECKOUT_SESSION_ID}',cancel_url:BASE_URL+'/?paid=0'});
+  try{const s=await stripe.checkout.sessions.create(SS.premiumSession(PREMIUM_USD,req.user.id,BASE_URL));
     db.prepare("INSERT INTO purchases(user_id,stripe_session,coins,usd,status,kind) VALUES(?,?,0,?,'pending','premium')").run(req.user.id,s.id,PREMIUM_USD);res.json({url:s.url})}
   catch(e){res.status(502).json({error:'Stripe error: '+e.message})}});
 // Coarse location: snapped to a 0.02° grid (~2 km) before storing; exact coordinates are never stored or returned.
