@@ -28,7 +28,7 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  ok(await H.$('#gt')&&await H.$('.startbtn#glb'),'preview has title input and START');const sc=await H.$eval('#glb',e=>[getComputedStyle(e).color,e.textContent]);ok(sc[0]=='rgb(224, 30, 43)'&&sc[1]=='START!','light START! pill with red text');
  ok(/Never stream while driving/.test(await H.$eval('#pvwarn',e=>e.textContent))&&await H.$('.pvshare')&&(await H.getAttribute('#gt','placeholder'))=='Add description or tag your stream','red warning banner, share button, description input');
  await H.fill('#gt','Tools test');await shot(H,'08b_prelive_preview');
- await H.tap('#glb');await H.waitForFunction(()=>S.live?.id,null,{timeout:15000});await H.waitForSelector('.facetoast:has-text("Your face needs to be clearly visible before you can start streaming")');ok(true,'face toast on start');
+ await H.tap('#glb');await H.waitForFunction(()=>S.live?.id,null,{timeout:15000});await H.waitForTimeout(1500);ok(!(await H.$('.facetoast')),'no face-check nag once live');
  const sid=await H.evaluate(()=>S.live.id);await H.waitForFunction(()=>document.querySelector('#bv')?.videoWidth>0);
  // ---- host bar
  await H.tap('.hmenu >> visible=true');const bar=await H.$$eval('.tmenu .pm a',b=>b.map(x=>x.id.replace('hm-','')));await H.evaluate(()=>closePops());ok(JSON.stringify(bar)==JSON.stringify(['addg','vsb','fxb','megb','vwb','shb','tipb','moreb']),'host tools behind the menu (8): '+bar.join(','));ok(!(await H.$('.lvx #giftb')),'no host gift button');
