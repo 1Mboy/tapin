@@ -68,6 +68,7 @@ function hostMenu(){const n=$("#rqn")?.textContent||"";sheet(`<div class="shd"><
 setInterval(()=>{const a=$("#rqn");if(!a)return;for(const b of [$("#rqn2"),$("#rqn3")])if(b&&b.textContent!==a.textContent)b.textContent=a.textContent},800);
 const kfmt=n=>{n=+n||0;return n>=1e4?(n/1e3).toFixed(n>=1e5?0:1).replace(/\.0$/,"")+"K":n.toLocaleString()};
 Object.assign(IC,{wand:SV('<path d="M4 20L15 9"/><path d="M15 4v2M19 8h2M18 5l1.5-1.5M12 6l1 1"/><path d="M14 10l1-1"/>',26,'stroke-width="2"'),plus:SV('<path d="M12 5v14M5 12h14"/>',26,'stroke-width="2.4"'),menu:SV('<path d="M4 7h16M4 12h16M4 17h16"/>',26,'stroke-width="2.4"'),chev:SV('<path d="M6 9l6 6 6-6"/>',24,'stroke-width="2.6"'),eye:SV('<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/>',15)});
+window.addEventListener("focusout",()=>setTimeout(()=>{if($(".lvx")&&!document.activeElement?.matches?.("input,textarea"))window.scrollTo(0,0)},120));
 function openChat(){const b=$("#cinb");if(!b)return $("#ci")?.focus();b.hidden=false;$(".lvx")?.classList.add("chatting");$("#ci").focus()}
 function closeChatBar(){const b=$("#cinb");if(!b||b.hidden)return;if(document.activeElement==$("#ci"))$("#ci").blur();b.hidden=true;$(".lvx")?.classList.remove("chatting")}
 // host has no chat icon in Tagged's bar: tapping empty video opens the keyboard bar (mentions open it too)
