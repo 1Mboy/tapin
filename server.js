@@ -132,10 +132,10 @@ function notify(uid,type,actor,text,link){if(!uid||uid===actor)return;db.prepare
 
 // --- App ---
 const app=express();if(PROD||process.env.TRUST_PROXY)app.set('trust proxy',1);app.disable('x-powered-by');
-const PP_SRC=['https://www.paypal.com','https://*.paypal.com','https://*.paypalobjects.com','https://*.venmo.com'];
+const PP_SRC=['https://www.paypal.com','https://*.paypal.com','https://*.paypalobjects.com','https://*.venmo.com'];const AD_SRC=/^ca-pub-\d{10,20}$/.test(process.env.ADSENSE_CLIENT||'')?['https://pagead2.googlesyndication.com','https://*.googlesyndication.com','https://*.doubleclick.net','https://*.google.com','https://*.gstatic.com','https://*.adtrafficquality.google']:[];
 app.use(helmet({contentSecurityPolicy:{useDefaults:true,directives:{
-  'script-src':["'self'","'unsafe-inline'","'wasm-unsafe-eval'",'https://cdn.jsdelivr.net','https://accounts.google.com',...PP_SRC],'frame-src':["'self'",'https://accounts.google.com',...PP_SRC],'script-src-attr':["'unsafe-inline'"],'style-src':["'self'","'unsafe-inline'",'https://accounts.google.com'],
-  'img-src':["'self'",'data:','blob:','https://tile.openstreetmap.org',...PP_SRC],'media-src':["'self'",'blob:','mediastream:'],'connect-src':["'self'",'https://accounts.google.com','ws:','wss:','https://cdn.jsdelivr.net','https://storage.googleapis.com',...PP_SRC],
+  'script-src':["'self'","'unsafe-inline'","'wasm-unsafe-eval'",'https://cdn.jsdelivr.net','https://accounts.google.com',...PP_SRC,...AD_SRC],'frame-src':["'self'",'https://accounts.google.com',...PP_SRC,...AD_SRC],'script-src-attr':["'unsafe-inline'"],'style-src':["'self'","'unsafe-inline'",'https://accounts.google.com'],
+  'img-src':["'self'",'data:','blob:','https://tile.openstreetmap.org',...PP_SRC,...AD_SRC],'media-src':["'self'",'blob:','mediastream:'],'connect-src':["'self'",'https://accounts.google.com','ws:','wss:','https://cdn.jsdelivr.net','https://storage.googleapis.com',...PP_SRC,...AD_SRC],
   'form-action':["'self'",'https://checkout.stripe.com'],'upgrade-insecure-requests':null}},crossOriginEmbedderPolicy:false,crossOriginOpenerPolicy:{policy:'same-origin-allow-popups'}}));
 const originOk=o=>!o||!ORIGINS.length&&!PROD||ORIGINS.includes(o)||(!PROD&&/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(o));
 app.use(cors({origin:(o,cb)=>cb(null,originOk(o)),credentials:true}));
@@ -172,7 +172,10 @@ const ICE=uid=>{const l=[{urls:(process.env.STUN_URL||'stun:stun.l.google.com:19
     const user=`${Math.floor(Date.now()/1000)+TURN_TTL}:${uid||0}`;l.push({urls:process.env.TURN_URL.split(',').map(s=>s.trim()),username:user,credential:crypto.createHmac('sha1',process.env.TURN_SECRET).update(user).digest('base64')})}
   else if(process.env.TURN_URL)l.push({urls:process.env.TURN_URL.split(',').map(s=>s.trim()),username:process.env.TURN_USER||'',credential:process.env.TURN_PASS||''});return l};
 const PREMIUM_USD=+process.env.PREMIUM_USD||9.99;
-app.get('/api/config',(req,res)=>res.json({demo:DEMO,push:gaps.pushKey(),payments:!!stripe&&STRIPE_LIVE,stripe_live:STRIPE_LIVE,paypal:paypal.enabled()?{client_id:process.env.PAYPAL_CLIENT_ID,env:paypal.ENV}:null,premium_usd:PREMIUM_USD,stripe_test:!!stripe&&/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY||'')}));
+// Ads: AdSense only when ADSENSE_CLIENT (ca-pub-...) + ADSENSE_SLOT are set; else the client shows Tap.in house promos.
+const ADSENSE_CLIENT=/^ca-pub-\d{10,20}$/.test(process.env.ADSENSE_CLIENT||'')?process.env.ADSENSE_CLIENT:'',ADSENSE_SLOT=/^\d{5,20}$/.test(process.env.ADSENSE_SLOT||'')?process.env.ADSENSE_SLOT:'';
+app.get('/ads.txt',(req,res)=>{const t=process.env.ADS_TXT||(ADSENSE_CLIENT?`google.com, ${ADSENSE_CLIENT.replace(/^ca-/,'')}, DIRECT, f08c47fec0942fa0`:'');if(!t)return res.status(404).type('text/plain').send('');res.type('text/plain').set('Cache-Control','public, max-age=3600').send(t.replace(/\\n/g,'\n')+'\n')});
+app.get('/api/config',(req,res)=>res.json({demo:DEMO,ads:ADSENSE_CLIENT&&ADSENSE_SLOT?{client:ADSENSE_CLIENT,slot:ADSENSE_SLOT}:null,push:gaps.pushKey(),payments:!!stripe&&STRIPE_LIVE,stripe_live:STRIPE_LIVE,paypal:paypal.enabled()?{client_id:process.env.PAYPAL_CLIENT_ID,env:paypal.ENV}:null,premium_usd:PREMIUM_USD,stripe_test:!!stripe&&/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY||'')}));
 let iceCache={t:0,list:null};
 async function dynamicIce(){ // Cloudflare Realtime TURN (CF_TURN_KEY_ID+CF_TURN_API_TOKEN) or Metered (METERED_DOMAIN+METERED_API_KEY); cached 1h
   if(iceCache.list&&Date.now()-iceCache.t<Math.min(36e5,TURN_TTL*500))return iceCache.list;let list=null; // reuse for at most half the credential lifetime
