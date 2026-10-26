@@ -1,8 +1,0 @@
-// TEMPORARY backup endpoint (one-time token, sha256-gated). Removed right after use.
-const crypto=require('crypto'),path=require('path'),fs=require('fs');
-const H='325a52c91e78848f69d5bccc863d04563fa448030cf4fe2c8946f488a570a154';
-module.exports=function({app,db,DATA_DIR}){
- const ok=req=>{const a=crypto.createHash('sha256').update(String(req.headers['x-admin-token']||'')).digest(),b=Buffer.from(H,'hex');return crypto.timingSafeEqual(a,b)};
- app.get('/api/admin-tmp/backup',(req,res)=>{if(!ok(req))return res.status(404).end();const f=path.join(DATA_DIR,`backup-manual-${new Date().toISOString().replace(/[:.]/g,'-')}.db`);
-  db.backup(f).then(()=>res.download(f,path.basename(f),()=>fs.rm(f,()=>{}))).catch(e=>res.status(500).end())});
- console.log('TEMP backup endpoint enabled')};
