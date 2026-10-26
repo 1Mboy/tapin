@@ -195,7 +195,7 @@ function drawTiles(){const st=$("#stg");if(!st)return;const ids=Object.keys(S.gs
  $$("#stg .tl[data-sid],#stg .seat").forEach(t=>{if(t.classList.contains("seat")||!S.gs[t.dataset.sid])t.remove()});
  for(const sid of ids)if(![...st.children].some(t=>t.dataset.sid==sid)){st.insertAdjacentHTML("beforeend",tileHtml(sid,S.gs[sid]));const g=S.gs[sid];if(g.stream)setTileStream(sid,g.stream,g.mine);drawMic(sid)}
  const n=1+ids.length;gridLayout(st,n);
- st.dataset.n=n;[...st.children].forEach((t,i)=>t.classList.toggle("r0",n==1||i<(n==2?1:2)));setTimeout(()=>$$("#stg video.vfg").forEach(fitVideo),60);updGuestUI()}
+ st.dataset.n=n;$(".lvx.tgx")?.classList.toggle("solo",n==1&&!st.dataset.vs);[...st.children].forEach((t,i)=>t.classList.toggle("r0",n==1||i<(n==2?1:2)));setTimeout(()=>$$("#stg video.vfg").forEach(fitVideo),60);updGuestUI()}
 function drawMic(sid){const g=S.gs[sid],t=[...$$("#stg .tl")].find(x=>x.dataset.sid==sid);if(!g||!t)return;const m=g.mic||{},off=m.host||m.self;
  t.classList.toggle("micoff",!!off);t.querySelector(".mi").textContent=off?"🔇 ":"";const b=t.querySelector(".gmic");if(b){b.textContent=off?"🔇":"🎤";b.classList.toggle("off",!!off)}}
 function micTap(sid){const m=S.gs[sid]?.mic||{};if(S.live)sock.emit("guest-mic",{sid,muted:!m.host});else{if(m.host)return toast("The host muted your mic");sock.emit("guest-mic",{muted:!m.self})}}

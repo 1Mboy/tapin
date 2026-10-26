@@ -31,12 +31,15 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  await H.tap('#glb');await H.waitForFunction(()=>S.live?.id,null,{timeout:15000});await H.waitForSelector('.facetoast:has-text("Your face needs to be clearly visible before you can start streaming")');ok(true,'face toast on start');
  const sid=await H.evaluate(()=>S.live.id);await H.waitForFunction(()=>document.querySelector('#bv')?.videoWidth>0);
  // ---- host bar
- await H.tap('#hmenub');const bar=await H.$$eval('.tmenu .pm a',b=>b.map(x=>x.id.replace('hm-','')));await H.evaluate(()=>closePops());ok(JSON.stringify(bar)==JSON.stringify(['addg','vsb','fxb','megb','vwb','shb','tipb','moreb']),'host tools behind the menu (8): '+bar.join(','));ok(!(await H.$('.lvx #giftb')),'no host gift button');
- ok(await H.$('.odot')&&await H.$('.lvl2 svg')&&await H.$('.hrow .lx-cnt')&&await H.$('#diab')&&/Ask your viewers to play!/.test(await H.$eval('#gameb',e=>e.textContent)),'pill: online dot, crown/level, stats row, diamond+ edge button, play banner');
+ await H.tap('.hmenu >> visible=true');const bar=await H.$$eval('.tmenu .pm a',b=>b.map(x=>x.id.replace('hm-','')));await H.evaluate(()=>closePops());ok(JSON.stringify(bar)==JSON.stringify(['addg','vsb','fxb','megb','vwb','shb','tipb','moreb']),'host tools behind the menu (8): '+bar.join(','));ok(!(await H.$('.lvx #giftb')),'no host gift button');
+ ok(await H.$('.odot')&&await H.$('.tpill b .tcrown svg')&&await H.$eval('.tpill',e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.height<=34&&/rgba\(60, 60, 64/.test(s.backgroundColor)})&&await H.$('.hrow .lx-cnt')&&await H.$('#diab')&&/Ask your viewers to play!/.test(await H.$eval('#gameb',e=>e.textContent)),'pill: small grey Tagged tag with crown, stats row, diamond+ edge button, play banner');
  const sy=await H.$eval('#lchat',e=>e.innerText);ok(/Let's keep Live fun!/.test(sy)&&/Modbot is watching/.test(sy)&&/interact with your viewers/.test(sy),'3 system messages');
- const geo=await H.$$eval('.hbar3 > *',b=>b.map(x=>{const r=x.getBoundingClientRect(),s=getComputedStyle(x);return{c:r.left+r.width/2,w:r.width,bg:s.backgroundColor,y:r.top}}));
- ok(geo.slice(1).every(g=>g.bg=='rgba(0, 0, 0, 0)'),'icons have no background');const W=await H.evaluate(()=>innerWidth);ok(await H.$eval('.hbar3',e=>e.lastElementChild.classList.contains('gbtn')),'gift is the last item');ok(geo[geo.length-1].c+geo[geo.length-1].w/2>W-16,'gift at far right edge');ok(geo[0].w>W*0.5,'wide chat pill first');
- const tb=await H.$eval('.hbar3',e=>{const r=e.getBoundingClientRect();return{l:r.left,w:r.width,b:r.bottom,h:innerHeight,pb:getComputedStyle(e).paddingBottom}});ok(tb.l==0&&Math.abs(tb.w-W)<1&&Math.abs(tb.b-tb.h)<1&&parseFloat(tb.pb)>=10,'host bar full width, pinned bottom with safe-area padding');
+ ok(await H.$eval('.lvx',e=>e.classList.contains('solo')),'host alone = solo layout');const W=await H.evaluate(()=>innerWidth),HH=await H.evaluate(()=>innerHeight);
+ const bx=await H.$eval('#stg',e=>{const r=e.getBoundingClientRect();return[r.top,r.width,r.height]});ok(bx[0]==0&&Math.abs(bx[1]-W)<1&&Math.abs(bx[2]-HH)<1,'solo host video fills the full screen');
+ ok(await H.$eval('.hbar3',e=>getComputedStyle(e).display=='none'),'no text input bar when alone');ok(await H.$eval('#lchat',e=>getComputedStyle(e).backgroundColor=='rgba(0, 0, 0, 0)'),'chat overlays video (transparent)');
+ const sb=await H.$$eval('#sbar > *',b=>b.map(x=>{const r=x.getBoundingClientRect();return{id:x.id,c:r.left+r.width/2,t:x.innerText.trim()}}));ok(JSON.stringify(sb.map(x=>x.id))==JSON.stringify(['s-lvl','s-hrt','s-vs','s-addg','s-fx','s-more']),'solo bar: level, heart, VS, guests, wand, +');
+ const gaps=sb.slice(1).map((x,i)=>x.c-sb[i].c);ok(Math.max(...gaps)-Math.min(...gaps)<2&&sb.every(x=>!/[a-z]{3}/i.test(x.t.replace(/\d/g,''))),'solo bar icon-only, evenly spaced');
+ ok(await H.$eval('#ttipb',e=>e.getBoundingClientRect().width>0),'teal tips button under stats');await H.waitForSelector('#lchat :text("lighting")');ok(true,'lighting tip shown');
  ok(await H.$eval('#cinb',e=>e.hidden),'chat input hidden by default');
  const clutter=await H.evaluate(()=>['#ltm','.lbadge','#micb','.lx-x.end'].filter(s=>document.querySelector('.lvx '+s)));ok(!clutter.length,'no extra clutter (timer/LIVE badge/mic/End pill)');
  const x=await H.$eval('#endx',e=>({bg:getComputedStyle(e).backgroundColor,r:e.getBoundingClientRect()}));ok(x.bg=='rgba(0, 0, 0, 0)'&&x.r.left>300&&x.r.top<80,'top-right X with no background');
@@ -60,7 +63,7 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  // ---- filters sheet: beauty + color filter → viewers see it
  const frame=async(p,sel)=>p.evaluate(s=>{const v=document.querySelector(s),c=document.createElement('canvas');c.width=64;c.height=48;const x=c.getContext('2d');x.drawImage(v,0,0,64,48);const d=x.getImageData(0,0,64,48).data;let sat=0,lum=0;for(let i=0;i<d.length;i+=4){sat+=Math.max(d[i],d[i+1],d[i+2])-Math.min(d[i],d[i+1],d[i+2]);lum+=d[i]+d[i+1]+d[i+2]}return{sat:sat/(d.length/4),lum:lum/(d.length/4)/3}},sel);
  const before=await frame(V,'#rv');
- await H.tap('#hmenub');await H.tap('#hm-fxb');await H.waitForSelector('.fxsheet #fx-smooth');await H.$eval('#fx-smooth',e=>{e.value=60;e.dispatchEvent(new Event('input'))});await H.$eval('#fx-bright',e=>{e.value=70;e.dispatchEvent(new Event('input'))});
+ await H.tap('.hmenu >> visible=true');await H.tap('#hm-fxb');await H.waitForSelector('.fxsheet #fx-smooth');await H.$eval('#fx-smooth',e=>{e.value=60;e.dispatchEvent(new Event('input'))});await H.$eval('#fx-bright',e=>{e.value=70;e.dispatchEvent(new Event('input'))});
  ok(await H.evaluate(()=>fxRunning()&&S.stream.getVideoTracks()[0].kind=='video'&&S.stream.getVideoTracks()[0]!==S.cam),'canvas pipeline is the outgoing track');await shot(H,'02_filters_sheet');
  await H.tap('.fxtabs b:has-text("Filters")');const nf=await H.$$eval('.fxc[data-f]',e=>e.length);ok(nf>=8,nf+' color filters');await H.tap('.fxc[data-f="4"]');
  await V.waitForTimeout(2500);const mono=await frame(V,'#rv');ok(mono.sat<6&&before.sat>15,`viewer sees Mono filter (sat ${before.sat.toFixed(1)} → ${mono.sat.toFixed(1)})`);await shot(H,'02b_filters_mono');
@@ -73,7 +76,7 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  await H.tap('#fx-cam');ok(await H.evaluate(()=>!S.cam.enabled),'camera off');await H.tap('#fx-cam');
  await H.tap('.fxtabs .x');await V.waitForTimeout(1500);await shot(V,'03_mask_applied_viewer');await shot(H,'03b_mask_applied_host');
  // ---- megaphone
- const c0=await H.evaluate(()=>S.coins);await H.tap('#hmenub');await H.tap('#hm-megb');await H.waitForSelector('#shtxt');ok(/100/.test(await H.$eval('#shgo',e=>e.textContent)),'shout price 100 coins');
+ const c0=await H.evaluate(()=>S.coins);await H.tap('.hmenu >> visible=true');await H.tap('#hm-megb');await H.waitForSelector('#shtxt');ok(/100/.test(await H.$eval('#shgo',e=>e.textContent)),'shout price 100 coins');
  await H.fill('#shtxt','Thanks for watching! Follow me 💛');await H.tap('#shgo');await V.waitForSelector('#shoutb .shout:has-text("Thanks for watching")');await H.waitForSelector('#shoutb .shout');
  await H.waitForFunction(c=>S.coins==c-100,c0);ok(true,'shout charged 100 coins via ledger');await shot(H,'05_megaphone_banner');
  const db=new Database(path.join(DATA,'tapin.db'),{readonly:true});const row=db.prepare('SELECT coins FROM shouts ORDER BY id DESC LIMIT 1').get();ok(row?.coins==100,'shout recorded in shouts table');
@@ -81,7 +84,7 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  await V.waitForFunction(()=>!document.querySelector('#shoutb .shout'),null,{timeout:14000});ok(true,'banner gone after ~10s');
  const poor=await V.evaluate(()=>{return new Promise(r=>sock.emit('shout',{text:'x'},r))});ok(poor.ok||poor.error,'viewer shout path responds');
  // ---- add guest + gift
- await H.tap('#hmenub');await H.tap('#hm-addg');await H.waitForSelector('.agsheet:has-text("Add a Guest")');const ag=await H.$eval('.agsheet',e=>e.innerText);
+ await H.tap('.hmenu >> visible=true');await H.tap('#hm-addg');await H.waitForSelector('.agsheet:has-text("Add a Guest")');const ag=await H.$eval('.agsheet',e=>e.innerText);
  ok(/Play NextGuest/.test(ag)&&/Open up the guest box/.test(ag)&&/No requests right now/.test(ag)&&/Let people know you'd like to host!/.test(ag),'Add a Guest sheet: NextGuest row + empty state');await shot(H,'10_add_guest');
  await H.tap('#ngstart');await H.waitForSelector('.cfm:has-text("Introducing NextGuest!")');ok(/To skip a participant/.test(await H.$eval('.cfm',e=>e.innerText)),'NextGuest intro');await shot(H,'11_nextguest_intro');await H.tap('#ngGo');
  await H.waitForFunction(()=>/join the box/.test(document.querySelector('#gameb').textContent));ok(true,'banner: Tell your viewers to join the box!');
@@ -93,15 +96,15 @@ const cleanup=()=>{try{srv.kill()}catch(e){}try{fs.rmSync(DATA,{recursive:true,f
  await H.tap('#ndpick');await H.waitForFunction(()=>document.querySelector('#stg').dataset.n=='2',null,{timeout:20000});ok(true,'NextDate: host picks raised hand into guest seat');
  await H.tap('#gameb');await H.waitForSelector('.cfm:has-text("End NextDate?")');await H.tap('#ndEnd');ok(true,'End NextDate confirm');await H.evaluate(()=>sock.emit('guest-end'));await H.waitForFunction(()=>document.querySelector('#stg').dataset.n=='1',null,{timeout:15000});
  // More drawer
- await H.tap('#hmenub');await H.tap('#hm-moreb');await H.waitForSelector('.drawer');const dr=await H.$eval('.drawer',e=>e.innerText);ok(['Settings','Challenges','Items','Streamer Rank','Leaderboards','Send Blast','Edit Description','Flip Camera','Mute'].every(t=>dr.includes(t)),'More drawer items');
+ await H.tap('.hmenu >> visible=true');await H.tap('#hm-moreb');await H.waitForSelector('.drawer');const dr=await H.$eval('.drawer',e=>e.innerText);ok(['Settings','Challenges','Items','Streamer Rank','Leaderboards','Send Blast','Edit Description','Flip Camera','Mute'].every(t=>dr.includes(t)),'More drawer items');
  const dw=await H.$eval('.drawer',e=>e.getBoundingClientRect());ok(dw.left>150&&dw.right>=389,'drawer is a right-side half screen');await shot(H,'14_more_drawer');
  await H.tap('#m-set');await H.waitForSelector('#cf-save');await H.selectOption('#cf-slow','10');await H.fill('#cf-words','badword');await H.tap('#cf-save');await H.waitForSelector('.toast:has-text("Stream settings saved")');
  await V.fill('#ci','this has badword in it');await V.press('#ci','Enter');await V.waitForSelector('.toast:has-text("blocked")');ok(true,'keyword block enforced');
- await H.tap('#hmenub');await H.tap('#hm-moreb');await H.tap('#m-chal');await H.waitForSelector('.chal .chi');await shot(H,'15_challenges');await H.evaluate(()=>closePops());
- await H.tap('#hmenub');await H.tap('#hm-moreb');await H.tap('#m-rank');await H.waitForSelector('.rank');await H.evaluate(()=>closePops());
- await H.tap('#hmenub');await H.tap('#hm-moreb');await H.tap('#m-blast');await H.tap('#blastgo');await H.waitForSelector('.toast:has-text("Blast sent to 1 follower")');ok(true,'Send Blast notifies followers (free, 6h cooldown)');
- await H.tap('#hmenub');await H.tap('#hm-moreb');await H.tap('#m-desc');await H.fill('#descin','New description #chat');await H.tap('#descsave');await H.waitForSelector('.toast:has-text("Description updated")');
- await H.tap('#hmenub');await H.tap('#hm-moreb');await H.tap('#m-mute');ok(await H.evaluate(()=>!S.stream.getAudioTracks()[0].enabled),'Mute toggle');await H.evaluate(()=>{S.stream.getAudioTracks()[0].enabled=true;closePops()});
+ await H.tap('.hmenu >> visible=true');await H.tap('#hm-moreb');await H.tap('#m-chal');await H.waitForSelector('.chal .chi');await shot(H,'15_challenges');await H.evaluate(()=>closePops());
+ await H.tap('.hmenu >> visible=true');await H.tap('#hm-moreb');await H.tap('#m-rank');await H.waitForSelector('.rank');await H.evaluate(()=>closePops());
+ await H.tap('.hmenu >> visible=true');await H.tap('#hm-moreb');await H.tap('#m-blast');await H.tap('#blastgo');await H.waitForSelector('.toast:has-text("Blast sent to 1 follower")');ok(true,'Send Blast notifies followers (free, 6h cooldown)');
+ await H.tap('.hmenu >> visible=true');await H.tap('#hm-moreb');await H.tap('#m-desc');await H.fill('#descin','New description #chat');await H.tap('#descsave');await H.waitForSelector('.toast:has-text("Description updated")');
+ await H.tap('.hmenu >> visible=true');await H.tap('#hm-moreb');await H.tap('#m-mute');ok(await H.evaluate(()=>!S.stream.getAudioTracks()[0].enabled),'Mute toggle');await H.evaluate(()=>{S.stream.getAudioTracks()[0].enabled=true;closePops()});
  // ---- end: X → confirm → summary over blurred frame
  await H.tap('#endx');await H.waitForSelector('.cfm:has-text("Are You Sure?")');await shot(H,'06_end_confirm');await H.tap('#endok');
  await H.waitForSelector('.sumwrap .sum');ok(await H.$eval('.sumbg',e=>/data:image/.test(e.style.backgroundImage)&&/blur/.test(getComputedStyle(e).filter)),'summary over blurred last frame');await shot(H,'07_summary');
